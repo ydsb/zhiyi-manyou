@@ -126,7 +126,16 @@ router.beforeEach(async (to) => {
    * 不能因为它而误以为前端是安全边界 —— 前端校验永远只是辅助。
    */
   if (to.meta.requiresAdmin === true && auth.user?.role !== 'ADMIN') {
-    ElMessage.warning('该页面仅管理员可访问')
+    /*
+     * 用 ElMessage(...) 而不是 ElMessage.warning(...)：
+     * 实测在路由守卫里调用 .warning() 会抛 "ElMessage is not defined"。
+     * 根因是 element-plus 的命名导出在该调用时机尚未就绪 ——
+     * 本项目存在 router → store → api/request → router 的循环引用，
+     * 预打包的依赖在模块初始化早期可能拿不到绑定。
+     * 而 ElMessage 本身是"可调用对象"（函数带方法），
+     * 直接调用绕开了对命名导出的依赖，行为等价且更稳。
+     */
+    ElMessage({ type: 'warning', message: '该页面仅管理员可访问' })
     return { name: 'Dashboard' }
   }
 

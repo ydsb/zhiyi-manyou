@@ -4,6 +4,8 @@ import type {
   Badge,
   GrowthTrend,
   RadarChart,
+  SkillProfile,
+  SkillProfileSaveItem,
   WeeklyReport
 } from './types'
 
@@ -47,6 +49,31 @@ export const profileApi = {
       url: '/profile/weekly-reports',
       method: 'get',
       params: { limit }
+    })
+  },
+
+  /**
+   * 我的技能画像（FR-M1-03 / FR-M2-02），按三类意图分组。
+   *
+   * 导引页与「技能画像」编辑页共用：前者用它回显（通常是空的），
+   * 后者用它进入编辑态。
+   */
+  mySkills() {
+    return request<SkillProfile>({ url: '/profile/skills', method: 'get' })
+  },
+
+  /**
+   * 保存技能画像（FR-M1-03），**整体覆盖**自评部分。
+   *
+   * 语义是覆盖而非追加：调用方必须提交用户当前的完整选择，
+   * 否则未提交的标签会被当作"用户取消了勾选"而删除。
+   * 互评/课程来源的记录不受影响。
+   */
+  saveSkills(items: SkillProfileSaveItem[]) {
+    return request<SkillProfile>({
+      url: '/profile/skills',
+      method: 'post',
+      data: { items }
     })
   }
 }

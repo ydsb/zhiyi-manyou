@@ -837,3 +837,70 @@ export interface SkillSavePayload {
   difficulty?: number
   status?: number
 }
+
+/* ==================== 用户技能画像（FR-M1-03 / FR-M2-02） ==================== */
+
+/**
+ * 技能画像条目：技能本体 + 该用户在此技能上的状态。
+ *
+ * `source` 决定这条记录的来源，也是「用户能不能删掉它」的依据：
+ * SELF 自评可以被导引页覆盖删除；PEER 互评 / COURSE 课程是协作成果，
+ * 不会被覆盖删除（详见后端 SkillProfileServiceImpl 的合并策略）。
+ */
+export interface SkillProfileEntry {
+  skill: Skill
+  level?: number
+  source?: 'SELF' | 'PEER' | 'COURSE'
+  score?: number
+}
+
+/** 我的技能画像：按三类意图分组 */
+export interface SkillProfile {
+  skilled: SkillProfileEntry[]
+  researching: SkillProfileEntry[]
+  needed: SkillProfileEntry[]
+  /** 标签总数 */
+  total: number
+  /** 尚无任何画像 —— 等价于登录响应里的 firstLogin */
+  firstLogin: boolean
+}
+
+/** 画像保存请求项 */
+export interface SkillProfileSaveItem {
+  skillId: number
+  intent: SkillIntent
+  /** 可空：导引页不采集熟练度，留空由后端按意图给默认值 */
+  level?: number
+}
+
+/* ==================== 语义检索（S3 · FR-M3-02 / FR-M3-05） ==================== */
+
+/** 语义检索命中项 */
+export interface SemanticHit {
+  /** 标识，如 skill:1 / demand:2 */
+  key: string
+  kind: string
+  skillId?: number | null
+  name: string
+  /** 最终得分（含图谱加成） */
+  score: number
+  /** 纯语义得分 */
+  semanticScore?: number
+  /** 图谱关系加成 */
+  relationBoost?: number
+  /** 可解释理由 —— 让用户看到"为什么抽到这个标签"（FR-M3-05） */
+  reasons?: string[]
+  meta?: Record<string, unknown>
+}
+
+/** 语义检索结果 */
+export interface SemanticResult {
+  /** vector / keyword —— keyword 表示已降级 */
+  channel: string
+  /** 语义服务是否可用 */
+  available: boolean
+  count: number
+  tookMs: number
+  hits: SemanticHit[]
+  message?: string
+}

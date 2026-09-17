@@ -4,16 +4,21 @@ import com.nwu.zhiyi.api.dto.profile.AbilityReportVO;
 import com.nwu.zhiyi.api.dto.profile.BadgeVO;
 import com.nwu.zhiyi.api.dto.profile.GrowthTrendVO;
 import com.nwu.zhiyi.api.dto.profile.RadarChartVO;
+import com.nwu.zhiyi.api.dto.profile.SkillProfileSaveRequest;
+import com.nwu.zhiyi.api.dto.profile.SkillProfileVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.security.SecurityUtils;
 import com.nwu.zhiyi.service.profile.ProfileService;
+import com.nwu.zhiyi.service.profile.SkillProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
 
@@ -31,6 +36,38 @@ import java.util.Map;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final SkillProfileService skillProfileService;
+
+    /**
+     * 我的技能画像（FR-M1-03 / FR-M2-02）。
+     *
+     * <p>按「我擅长 / 我正在研究 / 我急需」三组返回，供导引页回显与后续编辑。
+     * {@code firstLogin=true} 表示尚无画像，前端应引导至导引页 ——
+     * 该字段在登录响应里也有，但刷新页面后登录响应就丢了，
+     * 所以这里再提供一次，让"是否已完成导引"的判断不依赖前端内存状态。
+     *
+     * <pre>GET /api/profile/skills</pre>
+     */
+    @GetMapping("/skills")
+    public ApiResponse<SkillProfileVO> mySkills() {
+        return ApiResponse.success(skillProfileService.mine(SecurityUtils.currentSno()));
+    }
+
+    /**
+     * 保存我的技能画像（FR-M1-03），整体覆盖自评部分。
+     *
+     * <p>导引页三步选择与「技能画像」页的编辑共用本接口。
+     * 互评（PEER）与课程（COURSE）来源的记录不会被覆盖删除，见服务实现说明。
+     *
+     * <pre>POST /api/profile/skills</pre>
+     */
+    @PostMapping("/skills")
+    public ApiResponse<SkillProfileVO> saveSkills(@Valid @RequestBody SkillProfileSaveRequest request) {
+        String sno = SecurityUtils.currentSno();
+        SkillProfileVO vo = skillProfileService.save(sno, request);
+        return ApiResponse.success(
+                "已保存 " + vo.getTotal() + " 个技能标签，画像已更新", vo);
+    }
 
     /**
      * 能力雷达图（FR-M7-01 / FR-M7-02 / AC-06）。

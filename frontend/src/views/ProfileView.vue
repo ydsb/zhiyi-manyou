@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { profileApi, exportReportAsPdf } from '@/api/profile'
+import type { Badge, SkillProfile, SkillProfileEntry } from '@/api/types'
 
 /**
- * 个人中心（FR-M1-05 / FR-M1-07 / FR-M7-08 / FR-M8-01）。
+ * 个人中心（FR-M1-05 / FR-M1-07 / FR-M7-04 / FR-M7-06 / FR-M7-08 / FR-M8-01）。
  */
 const auth = useAuthStore()
+const router = useRouter()
 
 const form = ref({
   nickname: auth.user?.displayName || '',
@@ -16,9 +20,11 @@ const form = ref({
   intro: auth.user?.intro || ''
 })
 
+/* ---------------- 信用与认证状态（FR-M8-01） ---------------- */
+
 const creditPercent = computed(() => {
   const score = auth.user?.creditScore ?? 100
-  // 信用值以 200 为满分展示
+  // 信用值以 200 为满分展示（CreditLevel.RANGE_MAX = 200，不是 100）
   return Math.min(100, Math.round((score / 200) * 100))
 })
 
@@ -35,12 +41,95 @@ const authStatusMeta = computed(() => {
   }
 })
 
+/* ---------------- 技能画像（FR-M1-03 / FR-M2-02） ---------------- */
+
+const skills = ref<SkillProfile | null>(null)
+const loadingSkills = ref(false)
+
+/**
+ * 三类意图的展示元信息。
+ *
+ * 这里把"来源"也显示出来（互评 / 课程）：用户在导引页只填自评，
+ * 若某技能旁边标着"互评"，说明它带来的分数来自协作成果，
+ * 也让「取消勾选不会删掉互评分数」这一行为变得可预期。
+ */
+const INTENT_GROUPS = [
+  { key: 'skilled' as const, label: '我擅长', type: 'success' as const },
+  { key: 'researching' as const, label: '我正在研究', type: 'info' as const },
+  { key: 'needed' as const, label: '我急需', type: 'danger' as const }
+]
+
+const sourceLabel = (s?: string) =>
+  s === 'PEER' ? '互评' : s === 'COURSE' ? '课程' : '自评'
+
+const sourceTagType = (s?: string) =>
+  s === 'PEER' ? 'warning' as const : s === 'COURSE' ? 'success' as const : 'info' as const
+
+function groupOf(key: 'skilled' | 'researching' | 'needed'): SkillProfileEntry[] {
+  return skills.value?.[key] ?? []
+}
+
+/* ---------------- 勋章（FR-M7-04） ---------------- */
+
+const badges = ref<Badge[]>([])
+const loadingBadges = ref(false)
+
+const unlockedCount = computed(() => badges.value.filter((b) => b.unlocked).length)
+
+/* ---------------- 数据加载 ---------------- */
+
+async function loadSkills() {
+  loadingSkills.value = true
+  try {
+    skills.value = await profileApi.mySkills()
+  } catch {
+    // 提示由响应拦截器统一处理
+  } finally {
+    loadingSkills.value = false
+  }
+}
+
+async function loadBadges() {
+  loadingBadges.value = true
+  try {
+    badges.value = await profileApi.badges()
+  } catch {
+    // 勋章加载失败不阻塞页面
+  } finally {
+    loadingBadges.value = false
+  }
+}
+
+onMounted(() => {
+  loadSkills()
+  loadBadges()
+})
+
+/* ---------------- 操作 ---------------- */
+
+function editSkills() {
+  router.push({ name: 'Onboarding' })
+}
+
 function save() {
   ElMessage.info('资料保存接口待开发（PUT /api/profile）')
 }
 
-function exportReport() {
-  ElMessage.info('报告导出接口待开发（GET /api/profile/report/export，FR-M7-06）')
+/**
+ * 导出能力鉴定报告。
+ *
+ * <p>原先这里是一句 `ElMessage.info('报告导出接口待开发')` —— 但后端
+ * `GET /api/profile/report` 与前端 `exportReportAsPdf()` 早已实现，
+ * 只是没人接上。提示"待开发"会让验收方以为功能缺失，属于误导性占位，
+ * 因此改为真实调用。
+ */
+async function exportReport() {
+  try {
+    const report = await profileApi.report()
+    exportReportAsPdf(report)
+  } catch {
+    // 数据不足时后端返回 PO​ROFILE_NOT_ENOUGH_DATA，由拦截器提示
+  }
 }
 
 function exportData() {
@@ -130,8 +219,78 @@ function exportData() {
             <el-button text @click="exportData">导出我的数据</el-button>
           </div>
         </div>
+
+        <div class="zy-card panel mt">
+          <div class="panel__head">
+            <span class="panel__title">数字勋章</span>
+            <el-tag size="small" effect="plain">{{ unlockedCount }} / {{ badges.length }}</el-tag>
+          </div>
+          <div v-loading="loadingBadges" class="badges">
+            <div
+              v-for="b in badges"
+              :key="b.code"
+              class="badge"
+              :class="{ 'badge--off': !b.unlocked }"
+            >
+              <div class="badge__top">
+                <span class="badge__name">{{ b.name }}</span>
+                <el-tag v-if="b.unlocked" size="small" type="success" effect="plain">已获得</el-tag>
+                <span v-else class="badge__hint">{{ b.progressHint }}</span>
+              </div>
+              <div class="badge__desc">{{ b.description }}</div>
+            </div>
+            <el-empty v-if="!loadingBadges && badges.length === 0" description="暂无勋章定义" :image-size="60" />
+          </div>
+        </div>
       </el-col>
     </el-row>
+
+    <!-- 技能画像 -->
+    <div class="zy-card panel mt">
+      <div class="panel__head">
+        <span class="panel__title">我的技能画像</span>
+        <div class="panel__actions">
+          <el-tag size="small" effect="plain">共 {{ skills?.total ?? 0 }} 个标签</el-tag>
+          <el-button size="small" type="primary" plain @click="editSkills">编辑画像</el-button>
+        </div>
+      </div>
+      <p class="panel__desc">
+        这是集市匹配度、供需排序与能力雷达图的数据来源。标签来源标注为
+        <b>自评</b> 的可在此处增删；标注为 <b>互评</b> / <b>课程</b> 的来自协作成果，
+        不会被编辑覆盖删除。
+      </p>
+
+      <div v-loading="loadingSkills" class="intents">
+        <div v-for="g in INTENT_GROUPS" :key="g.key" class="intent">
+          <div class="intent__head">
+            <el-tag size="small" :type="g.type" effect="light">{{ g.label }}</el-tag>
+            <span class="intent__count">{{ groupOf(g.key).length }} 个</span>
+          </div>
+          <div v-if="groupOf(g.key).length" class="intent__list">
+            <div v-for="e in groupOf(g.key)" :key="e.skill.id" class="chip">
+              <span class="chip__name">{{ e.skill.name }}</span>
+              <el-tag size="small" :type="sourceTagType(e.source)" effect="plain">
+                {{ sourceLabel(e.source) }}
+              </el-tag>
+              <span class="chip__lv">L{{ e.level ?? 1 }}</span>
+            </div>
+          </div>
+          <p v-else class="intent__empty">尚未设置</p>
+        </div>
+      </div>
+
+      <el-alert
+        v-if="skills && skills.total === 0"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="你还没有技能画像"
+        description="没有画像时，集市匹配的「技能供需」因子恒为 0，排序与高匹配高亮都无法体现。建议先花一分钟完成导引。"
+      />
+      <div v-if="skills && skills.total === 0" class="empty-action">
+        <el-button size="small" type="primary" @click="editSkills">去设置技能画像</el-button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -223,5 +382,113 @@ function exportData() {
 .kv__v {
   font-size: 12.5px;
   color: var(--zy-text-regular);
+}
+
+/* ---------------- 数字勋章 ---------------- */
+
+.badges {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.badge {
+  padding: 9px 11px;
+  border: 1px solid var(--zy-border-light);
+  border-radius: var(--zy-radius);
+  background: #fbfdfe;
+}
+
+/* 未解锁的勋章降饱和度而不是隐藏：让用户知道"还差什么"才有引导作用 */
+.badge--off {
+  opacity: 0.62;
+  background: #fafbfb;
+}
+
+.badge__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.badge__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.badge__hint {
+  font-size: 11px;
+  color: var(--zy-text-placeholder);
+}
+
+.badge__desc {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--zy-text-secondary);
+}
+
+/* ---------------- 技能画像 ---------------- */
+
+.intents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.intent {
+  padding: 12px 13px;
+  border: 1px solid var(--zy-border-light);
+  border-radius: var(--zy-radius);
+  background: #fbfdfe;
+}
+
+.intent__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+.intent__count {
+  font-size: 11.5px;
+  color: var(--zy-text-placeholder);
+}
+
+.intent__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  background: #fff;
+  border: 1px solid var(--zy-border);
+  border-radius: var(--zy-radius);
+}
+
+.chip__name {
+  font-weight: 600;
+}
+
+.chip__lv {
+  font-size: 11px;
+  color: var(--zy-accent);
+}
+
+.intent__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--zy-text-placeholder);
+}
+
+.empty-action {
+  margin-top: 12px;
 }
 </style>

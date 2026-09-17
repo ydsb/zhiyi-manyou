@@ -99,6 +99,9 @@ public enum ErrorCode {
     GROWTH_REPORT_NOT_FOUND(3064, "成长周报不存在"),
     REPORT_EXPORT_FAILED(3065, "报告导出失败"),
     PROFILE_DIMENSION_MAPPING_MISSING(3066, "技能未映射到能力维度"),
+    SKILL_PROFILE_EMPTY(3067, "请至少选择一个技能标签"),
+    SKILL_PROFILE_TOO_MANY(3068, "单次保存的技能标签过多，请精简后再提交"),
+    SKILL_PROFILE_INTENT_ILLEGAL(3069, "技能意图取值非法，只接受 SKILLED / RESEARCHING / NEEDED"),
 
     /* ---------------- 3xxx 信用体系与社区治理（M8） ---------------- */
     CREDIT_ADJUST_FORBIDDEN(3070, "无权调整信用值"),
