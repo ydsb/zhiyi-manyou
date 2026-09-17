@@ -48,7 +48,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="训练技能语义向量索引")
     parser.add_argument("--out", default=str(Path(__file__).parent / "models"),
                         help="模型输出目录")
-    parser.add_argument("--dim", type=int, default=128, help="向量维度")
+    # 默认 512 维：由评测确定，不是拍脑袋。
+    # 在 788 条技能语料上实测（tests/eval_match.py --compare）：
+    #   维度   Hit@1   Hit@3   Hit@5     MRR
+    #    64    53.3%   63.3%   73.3%   0.5883
+    #   128    63.3%   76.7%   76.7%   0.6889
+    #   256    56.7%   83.3%   86.7%   0.6972
+    #   512    73.3%   93.3%   96.7%   0.8250   ← 选定
+    # 语料小时低维够用（27 条时 26 维即可）；语料上千条后维度过低会压缩区分度。
+    parser.add_argument("--dim", type=int, default=512, help="向量维度（默认 512，见上方依据）")
     parser.add_argument("--index-mode", default="exact", choices=["exact", "lsh"],
                         help="检索模式")
     parser.add_argument("--max-features", type=int, default=60000,

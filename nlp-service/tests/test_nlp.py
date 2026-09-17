@@ -585,6 +585,38 @@ def test_relation_boost_bounded():
               f"语义最强项仍应排首位，加成不应颠倒顺序（实际首位 {top.key}）")
 
 
+@case("评测集：应结构完整且技能名与标注一致（防止标注漂移）")
+def test_eval_set_integrity():
+    """校验评测集自身质量 —— 评测集错了，指标就没有意义。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from eval_set import load_cases
+    cases = load_cases()
+    Assert.true(len(cases) >= 25, f"评测集应足够大，实际 {len(cases)} 条")
+    for q, accept, note in cases:
+        Assert.true(bool(q.strip()), "查询不能为空")
+        Assert.true(len(accept) >= 1, f"每条查询至少要有一个可接受答案：「{q}」")
+        Assert.true(bool(note), f"每条查询应有说明：「{q}」")
+        # 可接受答案是集合，天然去重；这里检查没有空串
+        Assert.true(all(a.strip() for a in accept), f"可接受答案不能有空串：「{q}」")
+
+
+@case("评测指标：summarize 应正确计算 Hit@K 与 MRR")
+def test_eval_metrics():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from eval_set import summarize
+    # 3 条：排名 1 / 排名 2 / 未命中
+    results = [
+        {"hit1": True, "hit3": True, "hit5": True, "reciprocal_rank": 1.0},
+        {"hit1": False, "hit3": True, "hit5": True, "reciprocal_rank": 0.5},
+        {"hit1": False, "hit3": False, "hit5": False, "reciprocal_rank": 0.0},
+    ]
+    m = summarize(results)
+    Assert.eq(m["count"], 3)
+    Assert.close(m["accuracy_hit1"], 1 / 3, 1e-4, "Hit@1 应为 1/3")
+    Assert.close(m["accuracy_hit3"], 2 / 3, 1e-4, "Hit@3 应为 2/3")
+    Assert.close(m["mrr"], 0.5, 1e-4, "MRR 应为 (1+0.5+0)/3 = 0.5")
+
+
 @case("边界：无共享词汇的技能在语料小时向量正交（锁定算法能力边界，防止误用）")
 def test_lsa_orthogonal_boundary():
     """
