@@ -74,3 +74,13 @@ docs/申报书*.doc
 docs/申报书*.docx
 docs/申报书*.pdf
 *申报书*
+# ------------------------------ S3 NLP 服务 ------------------------------
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+# 训练产物：模型可由 train.py 复现，不入库（避免二进制与语料不一致）
+nlp-service/models/
+# 测试临时目录
+nlp-service/tests/_tmp/
