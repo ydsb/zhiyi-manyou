@@ -79,10 +79,21 @@ const navItems: NavItem[] = [
   { name: 'Skills', label: '技能图谱', icon: '🕸️', desc: '跨学科标签与关系网络' },
   { name: 'Exchanges', label: '我的交换', icon: '🔁', desc: '以技易技与协作工作台' },
   { name: 'Governance', label: '信用与治理', icon: '⚖️', desc: '信用明细、争议申诉与仲裁公示' },
+  { name: 'Admin', label: '管理后台', icon: '🛠️', desc: '用户、审核队列与数据看板' },
   { name: 'Profile', label: '个人中心', icon: '🧱', desc: '资料与账号设置' }
 ]
 
 const activeName = computed(() => route.name as string)
+
+/**
+ * 可见导航项：管理后台只对 ADMIN 显示。
+ *
+ * 这里只是隐藏入口 —— 真正的权限由后端 SecurityConfig 强制（/api/admin/** 需 ADMIN），
+ * 前端隐藏只是避免普通用户点了看到 403。
+ */
+const visibleNavItems = computed(() =>
+  navItems.filter((i) => i.name !== 'Admin' || auth.user?.role === 'ADMIN')
+)
 
 async function handleLogout() {
   try {
@@ -120,7 +131,7 @@ onMounted(() => {
 
       <nav class="nav">
         <router-link
-          v-for="item in navItems"
+          v-for="item in visibleNavItems"
           :key="item.name"
           class="nav__item"
           :class="{ 'nav__item--active': activeName === item.name }"

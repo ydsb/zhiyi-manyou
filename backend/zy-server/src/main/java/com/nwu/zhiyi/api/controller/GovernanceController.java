@@ -47,6 +47,7 @@ public class GovernanceController {
     private final ArbitrationService arbitrationService;
     private final GovernanceAuditService auditService;
     private final CreditService creditService;
+    private final com.nwu.zhiyi.service.admin.AdminContentService adminContentService;
 
     /* ==================== 公示（FR-M8-07，匿名开放） ==================== */
 
@@ -200,6 +201,46 @@ public class GovernanceController {
         String reason = body.get("reason") == null ? null : String.valueOf(body.get("reason"));
         return ApiResponse.success("处置已执行，操作已留痕并公示",
                 arbitrationService.adminResolve(id, SecurityUtils.currentSno(), upheld, reason));
+    }
+
+    /* ==================== 内容举报（FR-M9-03，用户侧入口） ==================== */
+
+    /**
+     * 提交内容举报。
+     *
+     * <p>与争议申诉（走仲裁委员会）不同，举报针对**内容违规**（广告、辱骂、
+     * 虚假信息），由管理员直接处置，因此入口放在治理模块下但流程独立。
+     *
+     * <pre>POST /api/governance/reports</pre>
+     */
+    @PostMapping("/reports")
+    public ApiResponse<Map<String, Object>> report(@RequestBody Map<String, Object> body) {
+        String targetType = body.get("targetType") == null ? null : String.valueOf(body.get("targetType"));
+        Object tid = body.get("targetId");
+        Long targetId;
+        try {
+            targetId = tid == null ? null : Long.valueOf(String.valueOf(tid));
+        } catch (NumberFormatException e) {
+            throw com.nwu.zhiyi.common.exception.BusinessException.paramInvalid("targetId 必须是数字");
+        }
+        if (targetId == null) {
+            throw com.nwu.zhiyi.common.exception.BusinessException.paramInvalid("缺少 targetId");
+        }
+        String reasonType = body.get("reasonType") == null ? null : String.valueOf(body.get("reasonType"));
+        String detail = body.get("detail") == null ? null : String.valueOf(body.get("detail"));
+        return ApiResponse.success("举报已提交，管理员会尽快处理",
+                adminContentService.createReport(SecurityUtils.currentSno(), targetType,
+                        targetId, reasonType, detail));
+    }
+
+    /**
+     * 我的举报记录（可查看处理进度与结果）。
+     *
+     * <pre>GET /api/governance/reports/mine</pre>
+     */
+    @GetMapping("/reports/mine")
+    public ApiResponse<Map<String, Object>> myReports() {
+        return ApiResponse.success(adminContentService.myReports(SecurityUtils.currentSno()));
     }
 
     /**

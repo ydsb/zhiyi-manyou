@@ -75,6 +75,17 @@ export interface PlatformInfo {
   apiPrefix: string
 }
 
+/* ==================== 通用分页 ==================== */
+
+/** 后端统一分页结构（PageResult） */
+export interface PageData<T> {
+  records: T[]
+  total: number
+  page: number
+  size: number
+  pages: number
+}
+
 /* ==================== 信用与社区治理（模块 M8） ==================== */
 
 /** 信用因子明细 */

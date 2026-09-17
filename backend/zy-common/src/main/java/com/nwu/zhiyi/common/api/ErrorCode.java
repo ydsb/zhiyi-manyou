@@ -116,6 +116,18 @@ public enum ErrorCode {
     GOVERNANCE_AUDIT_NOT_FOUND(3083, "审计记录不存在"),
     ACCOUNT_BANNED(3084, "账号已被封禁，无法进行该操作"),
 
+    /* ---------------- 3xxx 管理后台（M9） ---------------- */
+    ADMIN_TARGET_USER_NOT_FOUND(3090, "目标用户不存在"),
+    ADMIN_CANNOT_MODIFY_SELF(3091, "不能对自己执行该管理操作"),
+    ADMIN_CANNOT_MODIFY_ADMIN(3092, "不能对其他管理员执行该操作"),
+    ADMIN_REMARK_REQUIRED(3093, "管理操作必须填写说明"),
+    REPORT_NOT_FOUND(3094, "举报记录不存在"),
+    REPORT_ALREADY_HANDLED(3095, "该举报已处理"),
+    REPORT_DUPLICATE(3096, "你已举报过该内容"),
+    REPORT_TARGET_NOT_FOUND(3097, "被举报的内容不存在"),
+    IMPORT_FILE_EMPTY(3098, "导入内容为空"),
+    IMPORT_TOO_MANY_ROWS(3099, "单次导入条数超出上限"),
+
     /* ---------------- 4xxx 外部依赖 ---------------- */
     AI_SERVICE_UNAVAILABLE(4001, "语义解析服务暂不可用，已降级为标签匹配"),
     VECTOR_STORE_ERROR(4002, "向量库访问异常"),

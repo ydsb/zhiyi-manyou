@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -52,6 +53,11 @@ const routes: RouteRecordRaw[] = [
         name: 'Governance',
         component: () => import('@/views/GovernanceView.vue'),
         meta: { title: '信用与治理', requiresAuth: true }
+      },      {
+        path: 'admin',
+        name: 'Admin',
+        component: () => import('@/views/AdminView.vue'),
+        meta: { title: '管理后台', requiresAuth: true, requiresAdmin: true }
       },
       {
         path: 'profile',
@@ -109,6 +115,18 @@ router.beforeEach(async (to) => {
 
   // 已登录用户访问登录页 → 回首页
   if (auth.isLoggedIn && to.name === 'Login') {
+    return { name: 'Dashboard' }
+  }
+
+  /*
+   * 管理后台需要 ADMIN 角色。
+   *
+   * 真正的权限由后端 SecurityConfig 强制（/api/admin/** 需 ADMIN，返回 403），
+   * 这里的前端拦截只是体验优化：避免普通用户点了直达链接看到一堆 403 错误提示。
+   * 不能因为它而误以为前端是安全边界 —— 前端校验永远只是辅助。
+   */
+  if (to.meta.requiresAdmin === true && auth.user?.role !== 'ADMIN') {
+    ElMessage.warning('该页面仅管理员可访问')
     return { name: 'Dashboard' }
   }
 
