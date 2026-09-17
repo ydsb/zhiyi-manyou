@@ -5,6 +5,8 @@ import com.nwu.zhiyi.security.RestAccessDeniedHandler;
 import com.nwu.zhiyi.security.RestAuthenticationEntryPoint;
 import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,8 +27,10 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -57,6 +61,7 @@ import java.util.Set;
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
+@Slf4j
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -205,17 +210,71 @@ public class SecurityConfig {
     }
 
     /**
-     * 跨域配置：允许本地前端开发端口访问。
+     * 跨域配置：允许本机与**同一局域网**内的前端访问。
      *
-     * <p>生产环境应改为具体的域名白名单。
+     * <p><b>为什么需要放行私有网段</b>：局域网部署时其他设备用
+     * {@code http://192.168.x.x:5173} 或 {@code http://10.x.x.x:5173} 打开页面，
+     * 浏览器会带上该 Origin。若白名单只有 localhost，则：
+     * <ul>
+     *   <li>GET 等<b>简单请求</b>仍能成功（不触发 CORS 预检，看起来"能用"）；</li>
+     *   <li>带 {@code Content-Type: application/json} 的 <b>POST 会先发 OPTIONS 预检</b>，
+     *       被拒绝后浏览器直接报 {@code Invalid CORS request} ——
+     *       表现为"页面能打开但登录不了"。</li>
+     * </ul>
+     * 这个坑很隐蔽，因为部分接口正常会让人误以为跨域没问题。
+     *
+     * <p><b>为什么用通配限定私有网段，而不是放开 {@code *}</b>：
+     * 私有网段之外的来源（公网域名、他人服务器）一律不放行。
+     * 这样即便服务被误暴露到公网，也不会变成任人调用的开放接口。
+     *
+     * <p><b>写法坑（实测确认，勿回退）</b>：Spring 6 的
+     * {@code CorsConfiguration.OriginPattern} 只把 <b>端口段</b>的
+     * {@code [*]} 当作"任意端口"，即正则
+     * {@code (.*):\[(\*|\d+(,\d+)*)]}；主机名段里的 {@code [*]}
+     * 会被当成**字面量**，导致整条规则静默失效。
+     * <pre>
+     *   "http://10.[*].[*].[*]:[*]"  → 10.51.101.24:5173 不匹配（错误写法）
+     *   "http://10.*.*.*:*"          → 10.51.101.24:5173 匹配  （正确写法）
+     * </pre>
+     * 实测对比见 {@code G:\DEV\_tools\CorsProbe2.java}（直接调用 checkOrigin）。
+     * 另外 {@code *} 不匹配空串，所以 {@code http://10.*.*.*:*} 不覆盖省略端口的
+     * {@code http://10.51.101.24}，需要单独列一条无端口规则。
+     *
+     * <p>需要额外域名时配置 {@code zhiyi.cors.allowed-origin-patterns} 覆盖默认值。
      */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${zhiyi.cors.allowed-origin-patterns:}") List<String> configuredPatterns) {
+
+        List<String> patterns = new ArrayList<>();
+        if (configuredPatterns != null) {
+            configuredPatterns.stream()
+                    .filter(p -> p != null && !p.isBlank())
+                    .forEach(p -> patterns.add(p.trim()));
+        }
+        if (patterns.isEmpty()) {
+            patterns.addAll(Arrays.asList(
+                    // 本机（任意端口）
+                    "http://localhost:[*]",
+                    "http://127.0.0.1:[*]",
+                    /*
+                     * 私有网段：局域网部署时其他设备用这些地址访问。
+                     * 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16。
+                     *
+                     * 主机名段必须写成 "*"（编译为正则 .*），不能写 "[*]" —— 原因见方法注释。
+                     * 每条网段列两份：带端口（:5173 等）与不带端口（http 默认 80）。
+                     */
+                    "http://10.*.*.*:[*]",
+                    "http://10.*.*.*",
+                    "http://172.*.*.*:[*]",
+                    "http://172.*.*.*",
+                    "http://192.168.*.*:[*]",
+                    "http://192.168.*.*"
+            ));
+        }
+
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList(
-                "http://localhost:[*]",
-                "http://127.0.0.1:[*]"
-        ));
+        configuration.setAllowedOriginPatterns(patterns);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Collections.singletonList("*"));
         configuration.setExposedHeaders(Arrays.asList("X-Trace-Id", "Authorization"));
@@ -224,6 +283,7 @@ public class SecurityConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+        log.info("[CORS] 允许的来源模式：{}", patterns);
         return source;
     }
 }
