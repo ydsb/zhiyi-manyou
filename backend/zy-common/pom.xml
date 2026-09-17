@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.nwu.zhiyi</groupId>
+        <artifactId>zhiyi-manyou</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>zy-common</artifactId>
+    <name>zy-common</name>
+    <description>通用模块：统一响应、异常体系、错误码、工具类</description>
+
+    <dependencies>
+        <!-- 统一响应体 / 全局异常处理需要 web 与 jackson；由 zy-server 统一提供运行时 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+    </dependencies>
+
+    <!--
+      说明：本模块是普通 jar（库），不打包为可执行 jar，因此不声明
+      spring-boot-maven-plugin。父 POM 只在 pluginManagement 中配置该插件，
+      不会自动绑定到本模块，从而避免执行 repackage 目标。
+      只有 zy-server 在自己的 build/plugins 中声明它。
+    -->
+</project>

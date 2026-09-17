@@ -1,0 +1,164 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  tomcat:
+    uri-encoding: UTF-8
+    threads:
+      max: 200
+      min-spare: 20
+  compression:
+    enabled: true
+
+spring:
+  application:
+    name: zhiyi-manyou
+
+  # ---------------------------------------------------------------------------
+  # 数据源（MySQL 8）
+  # ---------------------------------------------------------------------------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 连接串与凭据全部走环境变量，仓库中不保存任何真实密码。
+    # 运行前设置（Windows PowerShell 示例）：
+    #   $env:ZHIYI_DB_PASSWORD = '你的数据库密码'
+    # 可选覆盖：ZHIYI_DB_HOST / ZHIYI_DB_PORT / ZHIYI_DB_NAME / ZHIYI_DB_USER
+    url: jdbc:mysql://${ZHIYI_DB_HOST:localhost}:${ZHIYI_DB_PORT:3306}/${ZHIYI_DB_NAME:zhiyi_manyou}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${ZHIYI_DB_USER:root}
+    # 无默认值：未设置时 Spring 启动会明确报错，而不是静默用一个弱密码连上
+    password: ${ZHIYI_DB_PASSWORD}
+    hikari:
+      pool-name: ZhiYiHikariPool
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  # 初始化脚本由 DBA 或部署脚本执行，应用不自动执行 DDL
+  sql:
+    init:
+      mode: never
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+  web:
+    resources:
+      add-mappings: false
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 50MB
+
+# -----------------------------------------------------------------------------
+# MyBatis-Plus
+# -----------------------------------------------------------------------------
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.nwu.zhiyi.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    call-setters-on-nulls: true
+    jdbc-type-for-null: 'null'
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      table-underline: true
+
+# -----------------------------------------------------------------------------
+# 知驿·漫游 业务配置
+# -----------------------------------------------------------------------------
+zhiyi:
+  jwt:
+    # 生产环境请通过环境变量 ZHIYI_JWT_SECRET 覆盖
+    secret: ${ZHIYI_JWT_SECRET:zhiyi-manyou-dev-secret-key-please-change-in-production-2026}
+    # 访问令牌有效期（分钟）
+    expire-minutes: 720
+    # 刷新令牌有效期（分钟）
+    refresh-expire-minutes: 10080
+    issuer: zhiyi-manyou
+  match:
+    # 语义匹配返回候选数量
+    top-k: 20
+    # 低于该分值的候选不展示
+    min-score: 0.35
+  exchange:
+    # 默认并发进行中的交换上限
+    default-quota: 3
+    # 超时未评价天数
+    eval-timeout-days: 7
+  credit:
+    # 初始信用值
+    init-score: 100
+    # 完成一次交换的信用加分
+    complete-delta: 2
+    # 超时未评价扣分
+    eval-timeout-delta: -3
+
+  # ---------------------------------------------------------------------------
+  # 文件存储（FR-M5-03 / FR-M9-06）
+  #
+  # 开发与试点阶段使用本地磁盘；采购云服务后实现 OssFileStorage 并切换 storage-type，
+  # 业务代码无需改动。注意：多实例部署时本地存储不共享，需切对象存储。
+  # ---------------------------------------------------------------------------
+  storage:
+    # LOCAL 本地磁盘 / OSS 对象存储（预留）
+    type: LOCAL
+    # 本地存储根目录（生产环境请指向独立数据盘）
+    local-root: ${ZHIYI_STORAGE_ROOT:G:/DEV/zhiyi-uploads}
+
+  # ---------------------------------------------------------------------------
+  # 双向互评（M6）
+  # ---------------------------------------------------------------------------
+  evaluation:
+    # 进入待互评多少天后开始提醒（FR-M6-06）
+    remind-days: 3
+    # 多少天后按规则默认计分并记入信用影响
+    timeout-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 协作工作台（M5）
+  # ---------------------------------------------------------------------------
+  collab:
+    # 打卡提醒扫描间隔（毫秒），默认 30 分钟
+    reminder-interval-ms: 1800000
+    # 截止前多少小时开始提醒
+    due-soon-hours: 24
+
+# -----------------------------------------------------------------------------
+# 日志
+# -----------------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    com.nwu.zhiyi: DEBUG
+    org.springframework.security: INFO
+    com.baomidou.mybatisplus: INFO
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n'
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized

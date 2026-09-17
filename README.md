@@ -1,0 +1,371 @@
+# 知驿·漫游（ZhiYi Manyou）
+
+> **跨学科技能交换与学习记录平台** —— 把协作中的隐性能力，沉淀为可视化、可追溯、可验真的数字凭证。
+
+大学生创新训练计划项目 · 西北大学计算机学院
+
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.5-6DB33F)](https://spring.io/projects/spring-boot)
+[![JDK](https://img.shields.io/badge/JDK-17-007396)](https://adoptium.net/)
+[![Vue](https://img.shields.io/badge/Vue-3.5-42B883)](https://vuejs.org/)
+[![MyBatis-Plus](https://img.shields.io/badge/MyBatis--Plus-3.5.7-red)](https://baomidou.com/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)](https://www.mysql.com/)
+[![Tests](https://img.shields.io/badge/tests-136%20passed-success)](#测试)
+
+---
+
+## 目录
+
+- [它解决什么问题](#它解决什么问题)
+- [四个创新点](#四个创新点)
+- [功能模块](#功能模块)
+- [技术栈](#技术栈)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [测试](#测试)
+- [设计要点](#设计要点)
+- [已知边界](#已知边界)
+- [文档](#文档)
+
+---
+
+## 它解决什么问题
+
+高校学生存在大量**跨学科技能互补**的机会（会写代码的想做数据分析，会做视频的想学数学建模），
+但缺少可信的交换渠道；更关键的是，**协作中体现出的复合型能力无法沉淀** ——
+成绩单上只有一个分数，简历上只能自述"沟通能力强"，没有任何可核查的凭据。
+
+「知驿·漫游」把这段过程完整记录下来：
+
+```
+技能画像 → 供需匹配 → 以技易技 → 协作留痕 → 双向互评 → 能力画像 → 可验真凭证
+  (M2)       (M3/M4)    (M4)      (M5)        (M6)       (M7)      (M6/M7)
+```
+
+### 三个真实场景
+
+| 场景 | 平台如何支撑 |
+|---|---|
+| 计算机学院的同学想学**数学建模**，数学学院的同学想学 **ECharts 可视化** | 供需集市按「技能供需 × 置换平衡 × 学科相关度 × 时效性 × 活跃度」加权匹配，跨门类置换获得额外加分 |
+| 交换过程中担心对方"摸鱼"，最后凭印象打分 | 协作工作台记录任务拆解、打卡、文件版本、留言与时间轴；**过程性指标**（完成率、按期率、拆解粒度、启动速度）与**主观互评**并列呈现，互相印证 |
+| 想在简历上写"具备数据分析能力"，但无法证明 | 生成《跨学科协作能力鉴定报告》，带**校验码**，任何第三方（用人单位、评奖材料审核方）**无需登录**即可在线验真 |
+
+---
+
+## 四个创新点
+
+| 创新点 | 内容 | 落地模块 |
+|---|---|---|
+| **1. 评价机制重构** | 隐性能力 → 显性数字凭证。客观行为语料与主观互评互相印证，压缩"凭印象打分"与"互刷好评"的空间 | M5（FR-M5-06）+ M6 + M7 |
+| **2. 匹配范式跃迁** | 从"标签比对"到"图谱推理"。技能知识图谱支持先决/互补/同义关系，2 跳内识别跨学科间接互补 | M2 + M4 |
+| **3. 以技易技的交易逻辑** | 非货币化的双向价值置换，交换状态机 + 配额约束 + 信用约束 | M4 |
+| **4. 去中心化强信任治理** | 互刷模式识别 + 哈希存证 + 争议仲裁 | M6（M8 待做） |
+
+---
+
+## 功能模块
+
+| 模块 | 内容 | 状态 |
+|---|---|---|
+| M1 | 认证与新手引导（JWT） | ✅ |
+| M2 | 技能本体：标签树 / 检索 / **中文文本技能抽取** / 知识图谱 | ✅ |
+| M3 | 智能匹配（关键词降级版；向量检索待 S3） | 🔶 |
+| M4 | 供需集市 / 匹配度算法 / 交换状态机 | ✅ |
+| M5 | 协作工作台：任务打卡 / 文件版本 / 留言 / 时间轴 / **过程性指标** | ✅ |
+| M6 | 双向互评 / **哈希存证与篡改检测** / 凭证验真 / 互刷检测 | ✅ |
+| M7 | 数字档案：**能力雷达图** / 成长轨迹 / 数字勋章 / 能力鉴定报告 | ✅ |
+| M8 | 信用体系与社区治理 | ⬜ 待开发 |
+| M9 | 管理后台 | 🔶 部分 |
+
+### 亮点能力
+
+- **中文技能抽取**（M2）：`"我会做Vue前端，想学一下数学建模"` → 识别出 `Vue 前端开发`(SKILLED) 与 `数学建模`(RESEARCHING) 三元组，字符级最长匹配 + 就近意图关键词。
+- **可追溯的匹配度**：不返回一个黑箱分数，而是返回每个因子的分数、权重、贡献值与**文字解释**。
+- **哈希存证与篡改检测**（M6）：评价提交即封存 SHA-256；改动总分、评语、维度分、评价人**任一字段都会被校验接口检出**。
+- **可解释的能力画像**（M7）：每个维度都能回答"这个分怎么来的"，例如：
+  > 「工程逻辑」88.75 分，由以下技能按累计时长加权得出：「ECharts 数据可视化」（工学）换过 2 次、共 6 小时，平均 88.75 分
+
+---
+
+## 技术栈
+
+| 层次 | 技术 |
+|---|---|
+| 后端 | Spring Boot 3.3.5、JDK 17、Spring Security 6（JWT）、MyBatis-Plus 3.5.7、Hibernate Validator 8 |
+| 数据库 | MySQL 8.0（24 张表） |
+| 前端 | Vue 3.5、Vite 8、TypeScript 5.7、Pinia 4、Vue Router 5、Element Plus 2.14、ECharts 6 |
+| 工具库 | JJWT 0.11.5、Hutool 5.8.35 |
+| 待接入（S3） | Python NLP 语义引擎、向量检索（Elasticsearch / Milvus）、可信时间戳或联盟链 |
+
+---
+
+## 快速开始
+
+### 前置条件
+
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| JDK | **17** | Spring Boot 3.x 要求 Java 17+ |
+| Maven | 3.8+ | 或使用 IDE 内置 Maven |
+| MySQL | 8.0+ | 需支持 JSON 列类型 |
+| Node.js | 20+ | 前端构建 |
+
+### 1. 初始化数据库
+
+```bash
+# 建库并导入表结构与种子数据（24 张表，含演示用的技能标签与测试账号）
+mysql -u root -p < sql/01-schema.sql
+
+# 若从旧版本升级，按顺序执行增量迁移
+mysql -u root -p < sql/02-migration-m5.sql
+mysql -u root -p < sql/03-migration-m6.sql
+mysql -u root -p < sql/04-migration-m6-canonical.sql
+mysql -u root -p < sql/05-migration-m7.sql
+```
+
+### 2. 配置凭据（**仓库中不含任何真实密码**）
+
+数据库连接与 JWT 密钥全部通过环境变量注入：
+
+```powershell
+# Windows PowerShell
+$env:ZHIYI_DB_PASSWORD = '你的数据库密码'
+
+# 可选覆盖项
+$env:ZHIYI_DB_HOST     = 'localhost'
+$env:ZHIYI_DB_PORT     = '3306'
+$env:ZHIYI_DB_NAME     = 'zhiyi_manyou'
+$env:ZHIYI_DB_USER     = 'root'
+$env:ZHIYI_JWT_SECRET  = '生产环境请务必替换为足够长的随机串'
+```
+
+```bash
+# Linux / macOS
+export ZHIYI_DB_PASSWORD='你的数据库密码'
+```
+
+### 3. 启动后端
+
+```powershell
+# 载入构建环境（JDK17 + 工作区 Maven 仓库）
+. .\backend\build-env.ps1
+zy-build        # mvn clean package
+zy-run          # 启动（端口 8080）
+
+# 或一步启动（含数据库预检与可选重新构建）
+powershell -ExecutionPolicy Bypass -File backend\run-server.ps1
+
+# 冒烟测试（39 项接口检查）
+powershell -ExecutionPolicy Bypass -File backend\smoke-test.ps1
+```
+
+接口根地址 `http://localhost:8080/api`，健康检查 `http://localhost:8080/api/health`。
+
+> **脚本环境变量**：如果你的 JDK / Maven 不在默认位置，设置
+> `ZY_JAVA_HOME`、`ZY_MAVEN_HOME`、`ZY_MAVEN_REPO`、`ZY_MYSQL_CLIENT`
+> 即可，无需修改脚本（脚本默认路径指向原作者机器，会给出警告）。
+
+### 4. 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173
+```
+
+### 演示账号
+
+密码均为 `123456`：
+
+| 学号 | 角色 | 技能画像 |
+|---|---|---|
+| `admin` | 管理员 | — |
+| `2024117420` | 学生 | 精通 Vue / 动效，想学数学建模 |
+| `2024117421` | 学生 | 精通数学建模 / 科研实验设计 |
+| `2024117422` | 学生 | 精通英语口语 / 论文写作 |
+
+---
+
+## 项目结构
+
+```
+zhiyi-manyou-repo/
+├── backend/                       Spring Boot 后端（Maven 多模块）
+│   ├── pom.xml                    父 POM（统一依赖与版本）
+│   ├── build-env.ps1              构建环境（zy-build / zy-run / zy-test）
+│   ├── run-server.ps1             启动脚本（含数据库预检）
+│   ├── smoke-test.ps1             39 项接口冒烟测试
+│   ├── zy-common/                 公共模块：统一响应、错误码、枚举、工具
+│   │   └── src/main/java/com/nwu/zhiyi/common/
+│   │       ├── api/               ApiResponse / ErrorCode / PageResult
+│   │       ├── enums/             ★ 业务枚举（状态机、能力维度、评价维度…）
+│   │       ├── exception/         BusinessException / 全局异常处理
+│   │       └── util/              HashUtils 等
+│   └── zy-server/                 业务模块
+│       └── src/main/java/com/nwu/zhiyi/
+│           ├── api/controller/    REST 控制器
+│           ├── api/dto/           请求/响应对象（按模块分包）
+│           ├── config/            Security / MyBatis-Plus / 缓存 / 序列化
+│           ├── domain/entity/     实体（枚举以名称存 VARCHAR）
+│           ├── domain/mapper/     MyBatis-Plus Mapper
+│           ├── security/          JWT 过滤器与工具
+│           └── service/           ★ 业务服务（按模块分包）
+│               ├── skill/         M2 技能本体 / 图谱 / 文本解析
+│               ├── demand/        M4 供需集市 / 匹配算法
+│               ├── exchange/      M4 交换状态机
+│               ├── collab/        M5 协作工作台 / 过程性指标
+│               ├── evaluation/    M6 互评 / 存证 / 互刷检测
+│               ├── profile/       M7 能力画像 / 勋章 / 报告
+│               ├── notify/        通知中心
+│               └── storage/       文件存储抽象（本地 / 对象存储可切换）
+│
+├── frontend/                      Vue 3 前端
+│   └── src/
+│       ├── api/                   接口封装（含报告 PDF 排版）
+│       ├── layouts/               主布局（含通知中心）
+│       ├── stores/                Pinia 状态
+│       ├── router/                路由（含登录守卫）
+│       └── views/                 页面
+│           ├── DashboardView.vue  ★ 数字档案（雷达图 / 勋章 / 成长轨迹 / 报告导出）
+│           ├── MarketView.vue     供需集市
+│           ├── SkillsView.vue     技能图谱
+│           ├── ExchangesView.vue  我的交换
+│           └── WorkspaceView.vue  ★ 协作工作台
+│
+├── sql/                           数据库脚本
+│   ├── 01-schema.sql              全量建表 + 种子数据（幂等，新库用这个）
+│   └── 02~05-migration-*.sql      增量迁移（含一处重要设计修正的记录）
+│
+└── docs/                          项目文档
+    ├── 需求文档.md                 全栈需求规格说明书（46 FR / 24 NFR / 10 AC）
+    ├── 后端接口文档.md             接口清单 + 设计说明 + FAQ（含 20 条踩坑记录）
+    ├── 进度.md                    进度总览与已知坑
+    └── 交接说明.md                接手必读：当前状态、下一步、环境限制
+```
+
+---
+
+## 测试
+
+```powershell
+# 后端单元测试（136 项）
+. .\backend\build-env.ps1
+zy-build
+
+# 接口冒烟测试（39 项，需服务已启动）
+powershell -ExecutionPolicy Bypass -File backend\smoke-test.ps1
+
+# 前端类型检查
+cd frontend
+npx vue-tsc --noEmit
+```
+
+| 测试集 | 数量 | 覆盖内容 |
+|---|---|---|
+| `SkillTextParserTest` | 38 | 中文技能抽取、意图识别、最长匹配、图谱关联 |
+| `EvaluationIntegrityTest` | 16 | **哈希存证与逐字段篡改检测（验收项 AC-05）** |
+| `DimensionScoreCalculatorTest` | 14 | 互评维度分与总分口径 |
+| `MatchScoreCalculatorTest` | 14 | 匹配度加权算法 |
+| `LocalFileStorageTest` | 13 | 文件存储与**路径穿越防护** |
+| `AbilityDimensionTest` | 12 | **能力维度与学科门类映射（M7 雷达图口径）** |
+| `CollabViewTest` | 11 | 协作任务/文件/时间轴视图转换 |
+| `DemandContentAuditorTest` | 9 | 需求卡片内容审核 |
+| `EvaluationContentAuditorTest` | 9 | 互评内容审核（低分强制说明） |
+| **合计** | **136** | 全部通过 |
+
+### 验收项验证状态
+
+| 编号 | 验收标准 | 状态 |
+|---|---|---|
+| AC-02 | 技能抽取准确率 ≥ 90% | ✅ 实测 95% |
+| AC-05 | 篡改数据库评价记录后能检出不一致 | ✅ **已实测**：基线通过，篡改总分/评语/维度分/评价人**全部检出**，逐项还原后恢复通过 |
+| AC-06 | 雷达图随协作数据变化正确刷新；可导出带验证码的鉴定报告 | ✅ **已实测**：实时计算保证即时刷新；报告导出带校验码，可匿名验真 |
+
+---
+
+## 设计要点
+
+以下都是**踩坑之后形成的结论**，不是纸面设计。完整踩坑清单见 `docs/后端接口文档.md` 的 FAQ。
+
+### 1. 统一响应：业务错误返回 HTTP 200 + 错误码
+
+`{code, message, data, traceId, timestamp}`，`code != 0` 表示业务失败。
+好处是前端只需一处处理；代价是**测试脚本必须显式检查 `code` 字段** ——
+`Invoke-RestMethod` 对 HTTP 200 不抛异常，曾因此把"被拒绝"误判为"成功"。
+
+### 2. 枚举以名称存 VARCHAR，不用序号
+
+`@TableField(typeHandler=...)` **对 MyBatis 的自动结果映射无效**，早期用序号存储时
+出现过 `No enum constant AuthStatus.2`。改为存枚举名，可读且抗重构。
+
+### 3. 存证机制与**如实的能力边界**
+
+两级手段：**哈希固化**（可检出字段级篡改）+ **外部锚定**（可信时间戳/联盟链，S3 接入）。
+
+> ⚠️ **不宣称"物理上不可篡改"**：只有哈希固化时，能改库且有权限的人可以连哈希一起重算，
+> 使记录重新自洽。因此存证分级（`HASH` / `TIMESTAMP` / `CHAIN`），
+> 对外统一表述为「**可检出篡改**」，校验接口会把等级与边界说明一并返回给验真方。
+
+### 4. 参与哈希的字段必须"可逐字节重现"
+
+这是 M6 最深刻的一个教训。首版把 `dim_scores`（**MySQL JSON 列**）的原始字符串纳入哈希，
+结果**连未被篡改的记录也被误报为"已改动"** —— 因为 JSON 是规范化存储，
+写入的紧凑串与读回的表示不同（会加空格、按内部顺序重排）。
+
+修正：另存 `dim_canonical` 列，内容是**只由数值决定**的确定性字符串，专用于哈希。
+
+### 5. 能力画像：实时计算 + 定时快照双轨
+
+- 雷达图 = **实时计算** → 保证 AC-06「随协作数据变化正确刷新」；
+- 快照 = **定时落库** → 成长轨迹要画历史曲线，实时计算给不出历史值；
+- 两者共用同一个计算器，**口径天然一致**。
+
+### 6. 口径必须唯一
+
+- 互评总分只在 `DimensionScoreCalculator` 算；
+- 能力维度映射只在 `AbilityDimension` 枚举定义；
+- 交换状态流转规则只在 `ExchangeStatus` 枚举定义。
+
+若各处自行计算，会出现"同一份数据在不同页面显示不同结果"且无法追溯。
+
+### 7. 存储介质策略化
+
+`FileStorage` 接口 + `LocalFileStorage` 实现，采购云服务后新增 `OssFileStorage` 即可切换，
+**业务代码零改动**。文件按 `yyyy/MM/dd/uuid.ext` 存储，原始文件名单独入库，
+避免文件名冲突、路径穿越与中文编码问题。
+
+---
+
+## 已知边界
+
+诚实地列出本项目当前**没有做到**的事，避免夸大：
+
+| 项 | 现状 | 计划 |
+|---|---|---|
+| 存证抗篡改强度 | 仅哈希固化，有库权限者可同步重算哈希 | S3 接入可信时间戳或联盟链 |
+| 匹配智能度 | 关键词 + 图谱 2 跳，非语义向量 | S3 接入 NLP 语义引擎与向量检索 |
+| 技能抽取 | 基于规则与词典，未训练模型 | 语料积累后评估是否需要模型 |
+| 成长周报生成 | 模板化自然语言，非大模型生成 | 视需要接入 |
+| 报告导出 | 浏览器打印为 PDF（前端排版） | 如需服务端生成需解决中文字体授权 |
+| 部署形态 | 单实例、本地文件存储 | 多实例需切换对象存储并引入分布式缓存 |
+| M8 信用体系 | 仅 `zy_credit_ledger` 表与勋章引用，规则未实现 | 待开发 |
+| FR-M4-08 收藏/订阅 | 未实现（P2） | 待排期 |
+| FR-M5-08 阶段性成果互相确认 | 部分覆盖（打卡 + 证据地址） | 与 M8 一起做 |
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [需求文档](docs/需求文档.md) | 全栈需求规格说明书：46 项功能需求、24 项非功能需求、10 项验收标准、追溯矩阵 |
+| [后端接口文档](docs/后端接口文档.md) | 全部接口清单、设计说明、**20 条踩坑记录 FAQ** |
+| [进度](docs/进度.md) | 阶段进度、模块完成情况、环境说明 |
+| [交接说明](docs/交接说明.md) | 接手必读：当前状态、下一步任务、环境限制与应对 |
+
+---
+
+## 许可
+
+本项目基于 [MIT License](LICENSE) 开源 —— 可自由使用、修改与分发，请保留版权声明。
+
+本项目为大学生创新训练计划项目成果。如需引用或合作，欢迎通过仓库 Issue 联系。

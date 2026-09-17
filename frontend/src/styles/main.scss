@@ -1,0 +1,158 @@
+/* =============================================================================
+   知驿·漫游 —— 全局样式与设计令牌
+   视觉关键词：像素/体素风格基础方块、跨学科星图、能力可视化
+   ============================================================================= */
+
+:root {
+  /* 主色：青蓝（驿站的指引灯） */
+  --zy-primary: #2f7d8f;
+  --zy-primary-light: #4a9dae;
+  --zy-primary-dark: #235f6e;
+
+  /* 强调色：暖橙（技能交换的双向箭头） */
+  --zy-accent: #e08b3c;
+
+  /* 学科维度色（用于能力雷达图与标签） */
+  --zy-dim-engineering: #3f7cb8;
+  --zy-dim-humanities: #c96a4f;
+  --zy-dim-data: #4a9d6e;
+  --zy-dim-art: #a06cb8;
+  --zy-dim-collab: #d4a72c;
+
+  --zy-text-primary: #1f2d33;
+  --zy-text-regular: #46575f;
+  --zy-text-secondary: #7c8d95;
+  --zy-text-placeholder: #a9b6bc;
+
+  --zy-bg-page: #f4f7f8;
+  --zy-bg-card: #ffffff;
+  --zy-border: #e2e9ec;
+  --zy-border-light: #eef3f5;
+
+  --zy-radius-sm: 4px;
+  --zy-radius: 8px;
+  --zy-radius-lg: 14px;
+
+  --zy-shadow-sm: 0 1px 3px rgba(31, 45, 51, 0.06);
+  --zy-shadow: 0 4px 16px rgba(31, 45, 51, 0.08);
+  --zy-shadow-lg: 0 10px 32px rgba(31, 45, 51, 0.12);
+
+  /* 像素风：用无圆角 + 硬阴影表达"基础方块" */
+  --zy-pixel-shadow: 3px 3px 0 rgba(47, 125, 143, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--zy-text-primary);
+  background: var(--zy-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: var(--zy-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--zy-primary-light);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c8d6db;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a9bcc3;
+}
+
+/* ------------------------------ 通用布局工具类 ------------------------------ */
+
+.zy-page {
+  padding: 20px 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.zy-page-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.zy-page-subtitle {
+  margin: 0 0 20px;
+  color: var(--zy-text-secondary);
+  font-size: 13px;
+}
+
+.zy-card {
+  background: var(--zy-bg-card);
+  border: 1px solid var(--zy-border);
+  border-radius: var(--zy-radius);
+  box-shadow: var(--zy-shadow-sm);
+}
+
+.zy-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 280px;
+  padding: 32px;
+  color: var(--zy-text-secondary);
+  text-align: center;
+}
+
+.zy-placeholder__icon {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.zy-placeholder__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--zy-text-regular);
+}
+
+.zy-placeholder__desc {
+  max-width: 460px;
+  font-size: 13px;
+}
+
+.zy-tag-engineering {
+  --el-tag-bg-color: rgba(63, 124, 184, 0.12);
+  --el-tag-text-color: var(--zy-dim-engineering);
+  --el-tag-border-color: rgba(63, 124, 184, 0.3);
+}
+
+/* 像素风小方块：用于勋章、技能节点 */
+.zy-pixel-block {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+  box-shadow: var(--zy-pixel-shadow);
+}

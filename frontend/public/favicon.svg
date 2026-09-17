@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- 知驿·漫游 —— 像素风驿站方块图标 -->
+  <rect width="32" height="32" rx="6" fill="#2f7d8f"/>
+  <!-- 驿站：屋顶 -->
+  <rect x="7" y="9" width="18" height="3" fill="#f4f7f8"/>
+  <rect x="9" y="6" width="14" height="3" fill="#f4f7f8"/>
+  <!-- 驿站：墙体 -->
+  <rect x="9" y="13" width="4" height="4" fill="#e08b3c"/>
+  <rect x="15" y="13" width="4" height="4" fill="#f4f7f8"/>
+  <rect x="21" y="13" width="3" height="4" fill="#f4f7f8"/>
+  <rect x="9" y="19" width="4" height="6" fill="#f4f7f8"/>
+  <rect x="15" y="19" width="3" height="3" fill="#f4f7f8"/>
+  <rect x="20" y="19" width="4" height="6" fill="#e08b3c"/>
+  <rect x="15" y="24" width="3" height="1" fill="#f4f7f8"/>
+</svg>

@@ -1,0 +1,28 @@
+# 统一换行符，避免 Windows/Linux 协作时整文件 diff
+* text=auto eol=lf
+
+# Windows 脚本保持 CRLF（PowerShell 5.1 对 LF 的 .ps1 兼容性一般）
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.doc binary
+*.docx binary
+*.xls binary
+*.xlsx binary
+*.zip binary
+*.jar binary
+*.woff binary
+*.woff2 binary
+
+# 语言统计时排除生成物
+package-lock.json linguist-generated=true
+*.min.js linguist-generated=true
