@@ -50,6 +50,47 @@ public class RadarChartVO implements Serializable {
     /** 快照时间；null 表示本次为实时计算、尚未落库 */
     private String snapshotPeriod;
 
+    /**
+     * 技能画像的维度覆盖度（FR-M1-03 画像 → 能力维度）。
+     *
+     * <p><b>为什么雷达图之外还需要这一项</b>：雷达图的分数来自<b>已完成交换的互评</b>，
+     * 所以刚注册、还没做过任何交换的用户看到的是七个"暂无数据"——
+     * 技术上正确，但用户会觉得"这个功能是空的"。
+     * 而用户在导引页填的技能画像本身就能说明他擅长哪些领域，
+     * 只是那属于<b>自评</b>、证明力低于互评，不能混进雷达图的分数里。
+     *
+     * <p>因此单列一份覆盖度：按画像标签所属学科门类统计到各维度，
+     * 让用户一眼看到"我的能力版图覆盖了哪几块、标签都分布在哪"，
+     * 同时不污染"分数必须有出处"这条口径。
+     *
+     * <p>数量为 0 表示该维度没有画像标签，前端应显示为"未涉及"而不是 0 分。
+     */
+    private List<ProfileCoverage> profileCoverage;
+
+    /** 画像标签总数（0 表示尚未建立画像，前端引导去导引页） */
+    private Integer profileTagCount;
+
+    /**
+     * 单个维度的画像覆盖度。
+     */
+    @Data
+    public static class ProfileCoverage implements Serializable {
+
+        private static final long serialVersionUID = 1L;
+
+        private String key;
+        private String label;
+
+        /** 归入本维度的画像标签数（我擅长 / 在研 / 我急需 合计） */
+        private Integer tagCount;
+
+        /** 其中标记为「我擅长」的标签数 —— 供给面最能代表能力 */
+        private Integer skilledCount;
+
+        /** 本维度的画像标签名（我擅长优先） */
+        private List<String> skills;
+    }
+
     /** 单个维度的得分与出处 */
     @Data
     public static class DimensionScore implements Serializable {

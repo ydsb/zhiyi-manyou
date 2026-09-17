@@ -123,6 +123,24 @@ const candidates = computed<Skill[]>(() => {
 const visibleCandidates = computed(() => candidates.value.slice(0, renderLimit.value))
 const hasMore = computed(() => candidates.value.length > renderLimit.value)
 
+/**
+ * 当前技能树里全部合法标签 id。
+ *
+ * <p>用于剔除"不在树里"的标签（互评带来的、或已被停用的），
+ * 避免后端返回 3004 导致整次保存失败。见 {@link buildItems}。
+ */
+const treeSkillIds = computed(() => {
+  const ids = new Set<number>()
+  for (const cat of tree.value?.tree ?? []) {
+    for (const sub of cat.children) {
+      for (const s of sub.skills) {
+        ids.add(s.id)
+      }
+    }
+  }
+  return ids
+})
+
 /** 搜索词变化时重置分页，否则搜完再改词会看到"明明有结果却只剩几条" */
 function onKeywordChange() {
   renderLimit.value = RENDER_LIMIT
@@ -323,40 +341,104 @@ async function parseAndAdd() {
 /* 步骤流转与保存                                                      */
 /* ------------------------------------------------------------------ */
 
-function next() {
-  const list = currentPicked.value
-  if (currentStep.value.required && list.length === 0) {
-    ElMessage.warning('请至少选择一个你擅长的技能 —— 别人靠它找到你')
-    return
-  }
-  if (step.value < STEPS.length - 1) {
-    step.value += 1
-    keyword.value = ''
-    renderLimit.value = RENDER_LIMIT
-  } else {
-    finish()
-  }
+/**
+ * 构建提交载荷：把三步的当前选择合成一个集合。
+ *
+ * <p>载荷始终是**完整的三步选择**，因为后端保存语义是"整体覆盖自评部分"。
+ * 只提交当前步会让另外两步的标签被当成"用户取消勾选"而删除 ——
+ * 这是覆盖式写入最容易踩的坑。
+ *
+ * <p>另外会剔除**不在当前技能树里**的标签 id。这种标签可能来自两种情况：
+ * 用户被互评获得的技能、或标签后来被管理端停用/删除。后端对不存在的
+ * skillId 会返回 3004 并让整次保存失败 —— 一个脏 id 就会导致
+ * 用户的全部修改提交不上去，所以在客户端先滤掉。
+ */
+function buildItems() {
+  return STEPS.flatMap((s, i) =>
+    picked.value[i]
+      .filter((skill) => treeSkillIds.value.has(skill.id))
+      .map((skill) => ({ skillId: skill.id, intent: s.intent }))
+  )
 }
 
-async function finish() {
-  const items = STEPS.flatMap((s, i) =>
-    picked.value[i].map((skill) => ({ skillId: skill.id, intent: s.intent }))
-  )
+/**
+ * 保存当前进度。
+ *
+ * <p><b>为什么每一步都要保存，而不是只在最后一步保存</b>：
+ * 最初的实现只在第三步的"生成技能星图并保存"里落库。这在"首次导引、
+ * 用户一定要走完三步"的假设下没问题，但一旦用户是来**修改**画像的
+ * （从个人中心的「编辑画像」进入），他改完第一步的标签、点"下一步"、
+ * 然后直接离开 —— 改动全部丢失，而界面上没有任何提示，
+ * 用户会以为已经保存了。实测确认了这个丢失。
+ *
+ * 改成"每次前进都保存"后：任何一步退出都不会丢改动。
+ * 代价是每步一次请求，但载荷很小、局域网下体感无差异。
+ */
+async function saveProgress(): Promise<boolean> {
+  // 回显未完成时不允许保存：否则会把"还没回显出来的已有标签"当成取消勾选删掉
+  if (!prefillDone.value) {
+    ElMessage.warning('正在读取你已有的画像，请稍候一秒再保存')
+    return false
+  }
+  // 防止重复点击导致并发提交（覆盖式写入下并发提交可能互相抵消）
+  if (saving.value) {
+    return false
+  }
+  const items = buildItems()
   if (items.length === 0) {
     ElMessage.warning('请至少选择一个技能标签')
-    return
+    return false
   }
   saving.value = true
   try {
     const saved = await profileApi.saveSkills(items)
     // 画像一旦建立，firstLogin 即为 false，路由守卫不再把用户拉回本页
     auth.completeOnboarding()
-    ElMessage.success(`已保存 ${saved.total} 个技能标签，开始你的跨学科漫游吧`)
-    router.push({ name: 'Dashboard' })
+    skillsLoadedTotal.value = saved.total
+    return true
   } catch {
-    // 保存失败不跳转：跳走会让用户以为已保存，实际画像仍为空
+    // 保存失败必须留在原地：跳走会让用户以为已保存，实际画像仍是旧的
+    return false
   } finally {
     saving.value = false
+  }
+}
+
+async function next() {
+  const list = currentPicked.value
+  if (currentStep.value.required && list.length === 0) {
+    ElMessage.warning('请至少选择一个你擅长的技能 —— 别人靠它找到你')
+    return
+  }
+
+  // 前进前先落库，保证中途退出不丢改动
+  const ok = await saveProgress()
+  if (!ok) {
+    return
+  }
+
+  if (step.value < STEPS.length - 1) {
+    step.value += 1
+    keyword.value = ''
+    renderLimit.value = RENDER_LIMIT
+    ElMessage.success(`已保存 ${buildItems().length} 个标签`)
+  } else {
+    ElMessage.success(`已保存 ${buildItems().length} 个技能标签，开始你的跨学科漫游吧`)
+    router.push({ name: 'Dashboard' })
+  }
+}
+
+/** 放弃本次修改，返回上一页（不写库） */
+function cancel() {
+  /*
+   * 用 router.back() 而不是固定跳 Dashboard：进入本页的入口有两个
+   * （首登跳转、个人中心的「编辑画像」），回到来源页更符合预期。
+   * 直接打开本页时没有上一页，此时回退到 Dashboard，避免卡在空白页。
+   */
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push({ name: 'Dashboard' })
   }
 }
 
@@ -394,6 +476,20 @@ const totalPicked = computed(() => picked.value.reduce((sum, l) => sum + l.lengt
 /* 初始化                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 回显是否已完成。
+ *
+ * <p><b>这个守卫是必需的</b>：保存语义是"整体覆盖自评部分"，
+ * 而回显是异步的。若用户手快，在回显返回之前就点了保存，
+ * 提交的会是"空的或只填了一部分"的集合 —— 后端会照单全收，
+ * 把用户原有的标签全部删掉。守在这里，回显完成前不允许保存。
+ */
+const prefillDone = ref(false)
+
+/** 是否处于"修改已有画像"模式（决定是否显示「放弃修改」与标题文案） */
+const isEditing = computed(() => (skillsLoadedTotal.value ?? 0) > 0)
+const skillsLoadedTotal = ref<number | null>(null)
+
 onMounted(async () => {
   loadingTree.value = true
   try {
@@ -405,11 +501,12 @@ onMounted(async () => {
   }
 
   /*
-   * 回显已有画像：用户可能从「技能画像」页跳回来修改。
-   * 导引页原先假设"进来就是空的"，直接跳步会覆盖掉已有选择。
+   * 回显已有画像：用户可能是从个人中心的「编辑画像」进来的。
+   * 导引页最早假设"进来就是空的"，那样会直接覆盖掉用户已有的选择。
    */
   try {
     const mine = await profileApi.mySkills()
+    skillsLoadedTotal.value = mine.total
     if (mine.total > 0) {
       const byId = new Map<number, Skill>()
       for (const cat of tree.value?.tree ?? []) {
@@ -419,6 +516,11 @@ onMounted(async () => {
           }
         }
       }
+      /*
+       * 优先用技能树里的对象（带 categoryL1/L2 等信息，便于排序与展示）；
+       * 树里找不到时退回接口返回的 skill —— 例如标签来自互评记录、
+       * 而该标签在当前树里被停用的情况下。
+       */
       const map = (list: typeof mine.skilled) =>
         list
           .map((e) => byId.get(e.skill.id) ?? e.skill)
@@ -426,7 +528,9 @@ onMounted(async () => {
       picked.value = [map(mine.skilled), map(mine.researching), map(mine.needed)]
     }
   } catch {
-    // 回显失败不影响新填
+    // 回显失败时按"新建"处理；prefillDone 仍置位以保证页面可用
+  } finally {
+    prefillDone.value = true
   }
 })
 </script>
@@ -560,11 +664,16 @@ onMounted(async () => {
           </div>
 
           <div class="actions">
-            <el-button v-if="step > 0" @click="step -= 1">上一步</el-button>
+            <el-button v-if="step > 0" :disabled="saving" @click="step -= 1">上一步</el-button>
             <el-button type="primary" :loading="saving" @click="next">
-              {{ step === STEPS.length - 1 ? '生成技能星图并保存' : '下一步' }}
+              {{ step === STEPS.length - 1 ? '保存并完成' : '保存并下一步' }}
             </el-button>
+            <el-button v-if="isEditing" :disabled="saving" @click="cancel">放弃修改</el-button>
           </div>
+
+          <p class="actions__tip">
+            每次点"保存并下一步"都会立即写入画像，中途离开不会丢改动。
+          </p>
         </div>
       </el-col>
 

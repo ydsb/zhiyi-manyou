@@ -279,6 +279,25 @@ export interface AbilityDimensionScore {
   max: number
 }
 
+/**
+ * 技能画像在某个能力维度上的覆盖度。
+ *
+ * 注意它与 `AbilityDimensionScore` 的区别：**这不是分数**，而是画像标签的分布。
+ * 雷达图的分必须有出处（来自已完成交换的互评），所以刚注册、还没做过交换的用户
+ * 会看到七个"暂无数据"。覆盖度回答的是另一个问题："我的能力版图覆盖了哪几块"，
+ * 数据来自用户自己填的画像标签，属于自评，因此单列而不混入分数。
+ */
+export interface AbilityProfileCoverage {
+  key: string
+  label: string
+  /** 归入本维度的画像标签数（我擅长 / 在研 / 我急需 合计） */
+  tagCount: number
+  /** 其中标记为「我擅长」的标签数 */
+  skilledCount: number
+  /** 本维度的标签名（我擅长优先） */
+  skills: string[]
+}
+
 /** 能力雷达图数据（FR-M7-01/02，AC-06） */
 export interface RadarChart {
   sno: string
@@ -295,6 +314,10 @@ export interface RadarChart {
   /** 统计口径说明，页面上要展示，避免用户误解数字含义 */
   caliberNote: string
   snapshotPeriod?: string | null
+  /** 技能画像的维度覆盖度（自评，不是分数） */
+  profileCoverage?: AbilityProfileCoverage[]
+  /** 画像标签总数；0 表示尚未建立画像 */
+  profileTagCount?: number
 }
 
 /** 单个维度的变化摘要 */

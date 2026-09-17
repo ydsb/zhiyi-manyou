@@ -23,6 +23,21 @@ const auth = useAuthStore()
 
 const loading = ref(false)
 const radar = ref<RadarChart | null>(null)
+
+/**
+ * 能力版图条形图的归一化基准。
+ *
+ * 用"最大覆盖数"而不是固定值：标签分布常常很不均（比如 4 个工学 + 1 个艺术学），
+ * 按固定的 6 或 10 归一化会让所有条形都很短、看不出差别。
+ * 取最大值保证最长的那条占满，其余按比例，对比关系才清楚。
+ */
+const maxCoverage = computed(() => {
+  const counts = (radar.value?.profileCoverage ?? []).map((c) => c.tagCount)
+  return Math.max(1, ...counts)
+})
+
+/** 只展示有标签的维度？不 —— 保留空维度，用户才能看出"哪块我还没涉及" */
+const coverage = computed(() => radar.value?.profileCoverage ?? [])
 const badges = ref<Badge[]>([])
 const growth = ref<GrowthTrend | null>(null)
 const reports = ref<WeeklyReport[]>([])
@@ -279,6 +294,57 @@ onBeforeUnmount(() => {
           </div>
 
           <p class="panel__foot">{{ radar?.caliberNote }}</p>
+
+          <!--
+            能力版图（画像覆盖度）。
+            雷达图的分数必须有出处（已完成交换的互评），所以还没交换过的用户
+            看到的是七个"暂无数据"。但用户在导引页填的画像标签本身就能说明
+            他的能力分布，这里把它画出来，避免"有这个功能但页面是空的"。
+          -->
+          <div v-if="coverage.length" class="coverage">
+            <div class="coverage__head">
+              <span class="coverage__title">能力版图</span>
+              <el-tag size="small" type="info" effect="plain">
+                来自技能画像 · {{ radar?.profileTagCount ?? 0 }} 个标签
+              </el-tag>
+            </div>
+
+            <div class="coverage__bars">
+              <div
+                v-for="c in coverage"
+                :key="c.key"
+                class="cbar"
+                :class="{ 'cbar--empty': !c.tagCount }"
+              >
+                <span class="cbar__label">{{ c.label }}</span>
+                <span class="cbar__track">
+                  <i
+                    class="cbar__skilled"
+                    :style="{ width: (c.skilledCount / maxCoverage) * 100 + '%' }"
+                  ></i>
+                  <i
+                    class="cbar__other"
+                    :style="{ width: ((c.tagCount - c.skilledCount) / maxCoverage) * 100 + '%' }"
+                  ></i>
+                </span>
+                <span class="cbar__count">
+                  {{ c.tagCount || '—' }}
+                </span>
+              </div>
+            </div>
+
+            <div class="coverage__legend">
+              <span><i class="cdot cdot--skilled"></i>我擅长</span>
+              <span><i class="cdot cdot--other"></i>在研 / 我急需</span>
+              <span class="coverage__note">
+                深色段越多，说明你越能在这个领域教别人
+              </span>
+            </div>
+            <p class="coverage__foot">
+              这是<b>画像自评</b>的分布，用来告诉你能力版图覆盖了哪几块；
+              上方的雷达分数来自<b>已完成交换的互评</b>，两者口径不同、不混算。
+            </p>
+          </div>
         </div>
       </el-col>
 
@@ -609,6 +675,116 @@ onBeforeUnmount(() => {
   font-size: 10.5px;
   line-height: 1.65;
   color: var(--zy-primary-dark);
+}
+
+/* ---------------- 能力版图（画像覆盖度） ---------------- */
+.coverage {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--zy-border);
+}
+
+.coverage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.coverage__title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.coverage__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 未涉及的维度降低对比度，但不隐藏 —— 用户要能看出"这块我还没覆盖" */
+.cbar--empty {
+  opacity: 0.45;
+}
+
+.cbar__label {
+  width: 66px;
+  flex: none;
+  font-size: 12px;
+  color: var(--zy-text-regular);
+}
+
+.cbar__track {
+  flex: 1;
+  display: flex;
+  height: 9px;
+  border-radius: 5px;
+  background: var(--zy-border-light);
+  overflow: hidden;
+}
+
+.cbar__skilled {
+  display: block;
+  height: 100%;
+  background: var(--zy-primary);
+}
+
+.cbar__other {
+  display: block;
+  height: 100%;
+  background: rgba(47, 125, 143, 0.32);
+}
+
+.cbar__count {
+  width: 18px;
+  flex: none;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--zy-text-secondary);
+}
+
+.coverage__legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--zy-text-secondary);
+}
+
+.cdot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 1px;
+}
+
+.cdot--skilled {
+  background: var(--zy-primary);
+}
+
+.cdot--other {
+  background: rgba(47, 125, 143, 0.32);
+}
+
+.coverage__note {
+  color: var(--zy-text-placeholder);
+}
+
+.coverage__foot {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--zy-text-placeholder);
 }
 
 /* ---------------- 勋章 ---------------- */

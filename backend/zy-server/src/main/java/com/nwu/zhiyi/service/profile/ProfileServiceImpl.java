@@ -12,6 +12,7 @@ import com.nwu.zhiyi.common.enums.AbilityDimension;
 import com.nwu.zhiyi.common.enums.EvidenceLevel;
 import com.nwu.zhiyi.common.enums.ExchangeStatus;
 import com.nwu.zhiyi.common.enums.NotificationType;
+import com.nwu.zhiyi.common.enums.SkillIntent;
 import com.nwu.zhiyi.domain.entity.AbilityProfile;
 import com.nwu.zhiyi.domain.entity.Badge;
 import com.nwu.zhiyi.domain.entity.EvaluationGrade;
@@ -20,6 +21,7 @@ import com.nwu.zhiyi.domain.entity.GrowthReport;
 import com.nwu.zhiyi.domain.entity.Skill;
 import com.nwu.zhiyi.domain.entity.Student;
 import com.nwu.zhiyi.domain.entity.UserBadge;
+import com.nwu.zhiyi.domain.entity.UserSkillProfile;
 import com.nwu.zhiyi.domain.mapper.AbilityProfileMapper;
 import com.nwu.zhiyi.domain.mapper.BadgeMapper;
 import com.nwu.zhiyi.domain.mapper.EvaluationGradeMapper;
@@ -28,6 +30,7 @@ import com.nwu.zhiyi.domain.mapper.GrowthReportMapper;
 import com.nwu.zhiyi.domain.mapper.SkillMapper;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import com.nwu.zhiyi.domain.mapper.UserBadgeMapper;
+import com.nwu.zhiyi.domain.mapper.UserSkillProfileMapper;
 import com.nwu.zhiyi.service.collab.WorkspaceService;
 import com.nwu.zhiyi.service.notify.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -80,6 +83,7 @@ public class ProfileServiceImpl implements ProfileService {
     private final ExchangeRecordMapper exchangeMapper;
     private final EvaluationGradeMapper evaluationMapper;
     private final SkillMapper skillMapper;
+    private final UserSkillProfileMapper userSkillProfileMapper;
     private final WorkspaceService workspaceService;
     private final NotificationService notificationService;
 
@@ -136,7 +140,86 @@ public class ProfileServiceImpl implements ProfileService {
         }
         vo.setDimensions(dims);
         vo.setScoreMap(scoreMap);
+
+        /*
+         * 附上"技能画像的维度覆盖度"。
+         *
+         * 雷达图的分数必须有出处（来自已完成交换的互评），这一点不能让步；
+         * 但刚注册、还没做过交换的用户会看到七个"暂无数据"，
+         * 观感上等于这个功能没做。覆盖度回答的是另一个问题：
+         * "我的能力版图现在覆盖了哪几块"，数据来自用户自己填的画像标签，
+         * 属于自评，因此单列而不混入分数。
+         */
+        List<RadarChartVO.ProfileCoverage> coverage = profileCoverage(sno);
+        vo.setProfileCoverage(coverage);
+        vo.setProfileTagCount(coverage.stream()
+                .mapToInt(c -> c.getTagCount() == null ? 0 : c.getTagCount())
+                .sum());
         return vo;
+    }
+
+    /**
+     * 统计用户技能画像标签在各能力维度上的分布。
+     *
+     * <p>把画像标签按 {@code zy_skill.category_l1} 归入能力维度。
+     * 门类未映射到任何维度时跳过（例如管理员新增了门类但尚未扩展映射表）——
+     * 宁可少一块，也不硬塞进不相干的维度。
+     *
+     * @param sno 学号
+     * @return 每个维度一项（顺序与雷达图一致，未涉及的维度 tagCount 为 0）
+     */
+    private List<RadarChartVO.ProfileCoverage> profileCoverage(String sno) {
+        List<UserSkillProfile> rows = userSkillProfileMapper.selectList(
+                new LambdaQueryWrapper<UserSkillProfile>().eq(UserSkillProfile::getSno, sno));
+
+        // 维度 → 技能名（我擅长优先，便于用户看到"我最能教别人的领域"）
+        Map<String, List<String>> skilledByDim = new LinkedHashMap<>();
+        Map<String, List<String>> otherByDim = new LinkedHashMap<>();
+        Map<String, Integer> countByDim = new LinkedHashMap<>();
+
+        if (!rows.isEmpty()) {
+            Set<Long> skillIds = new LinkedHashSet<>();
+            for (UserSkillProfile row : rows) {
+                skillIds.add(row.getSkillId());
+            }
+            Map<Long, Skill> skills = skillMapper.selectList(
+                            new LambdaQueryWrapper<Skill>().in(Skill::getId, skillIds))
+                    .stream().collect(Collectors.toMap(Skill::getId, s -> s, (a, b) -> a));
+
+            for (UserSkillProfile row : rows) {
+                Skill skill = skills.get(row.getSkillId());
+                if (skill == null) {
+                    continue;
+                }
+                AbilityDimension dim = AbilityDimension.ofCategory(skill.getCategoryL1());
+                if (dim == null) {
+                    continue;
+                }
+                String key = dim.getKey();
+                countByDim.merge(key, 1, Integer::sum);
+                boolean isSkilled = row.getIntent() == SkillIntent.SKILLED;
+                (isSkilled ? skilledByDim : otherByDim)
+                        .computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(skill.getName());
+            }
+        }
+
+        List<RadarChartVO.ProfileCoverage> list = new ArrayList<>();
+        for (AbilityDimension d : AbilityDimension.values()) {
+            RadarChartVO.ProfileCoverage c = new RadarChartVO.ProfileCoverage();
+            c.setKey(d.getKey());
+            c.setLabel(d.getLabel());
+            int total = countByDim.getOrDefault(d.getKey(), 0);
+            c.setTagCount(total);
+            List<String> skilled = skilledByDim.getOrDefault(d.getKey(), List.of());
+            List<String> other = otherByDim.getOrDefault(d.getKey(), List.of());
+            c.setSkilledCount(skilled.size());
+            List<String> names = new ArrayList<>(skilled);
+            names.addAll(other);
+            c.setSkills(names);
+            list.add(c);
+        }
+        return list;
     }
 
     /* ==================== 快照（FR-M7-03） ==================== */
