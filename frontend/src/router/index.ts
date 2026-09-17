@@ -47,6 +47,11 @@ const routes: RouteRecordRaw[] = [
         name: 'Workspace',
         component: () => import('@/views/WorkspaceView.vue'),
         meta: { title: '协作工作台', requiresAuth: true }
+      },      {
+        path: 'governance',
+        name: 'Governance',
+        component: () => import('@/views/GovernanceView.vue'),
+        meta: { title: '信用与治理', requiresAuth: true }
       },
       {
         path: 'profile',

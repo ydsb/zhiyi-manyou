@@ -78,7 +78,8 @@ const navItems: NavItem[] = [
   { name: 'Market', label: '供需集市', icon: '🧭', desc: '技能需求与供给卡片' },
   { name: 'Skills', label: '技能图谱', icon: '🕸️', desc: '跨学科标签与关系网络' },
   { name: 'Exchanges', label: '我的交换', icon: '🔁', desc: '以技易技与协作工作台' },
-  { name: 'Profile', label: '个人中心', icon: '🧱', desc: '资料、勋章与信用' }
+  { name: 'Governance', label: '信用与治理', icon: '⚖️', desc: '信用明细、争议申诉与仲裁公示' },
+  { name: 'Profile', label: '个人中心', icon: '🧱', desc: '资料与账号设置' }
 ]
 
 const activeName = computed(() => route.name as string)

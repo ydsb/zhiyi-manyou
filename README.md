@@ -9,7 +9,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42B883)](https://vuejs.org/)
 [![MyBatis-Plus](https://img.shields.io/badge/MyBatis--Plus-3.5.7-red)](https://baomidou.com/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-155%20passed-success)](#测试)
+[![Tests](https://img.shields.io/badge/tests-166%20passed-success)](#测试)
 
 ---
 
@@ -187,6 +187,10 @@ npm run dev     # http://localhost:5173
 | `2023117002` | 学生 | 新闻传播学院，信用 148（**可任仲裁委员**） |
 | `2022117003` | 学生 | 化学与材料学院，信用 162（**可任仲裁委员**） |
 
+> 后三位是**仲裁委员演示账号**。FR-M8-04 要求委员会由跨学科高信用用户组成且排除当事人及其学院，
+> 只有 3 个常规演示用户时一旦其中两人发生争议，合格委员就只剩 1 人，
+> 演示不出匿名投票主流程，因此专门准备了 3 位跨学院高信用账号。
+
 ---
 
 ## 项目结构
@@ -275,10 +279,11 @@ npx vue-tsc --noEmit
 | `AbilityDimensionTest` | 12 | **能力维度与学科门类映射（M7 雷达图口径）** |
 | `CreditLevelTest` | 12 | **信用等级分档与权限（含边界值）** |
 | `CreditRangeTest` | 7 | **信用值域与等级阈值自洽性（锁定一个真实缺陷）** |
+| `CreditFactorModelTest` | 11 | **信用五因子权重与降级口径（缺失互评按比例分摊等）** |
 | `CollabViewTest` | 11 | 协作任务/文件/时间轴视图转换 |
 | `DemandContentAuditorTest` | 9 | 需求卡片内容审核 |
 | `EvaluationContentAuditorTest` | 9 | 互评内容审核（低分强制说明） |
-| **合计** | **155** | 全部通过 |
+| **合计** | **166** | 全部通过 |
 
 ### 验收项验证状态
 
@@ -287,6 +292,7 @@ npx vue-tsc --noEmit
 | AC-02 | 技能抽取准确率 ≥ 90% | ✅ 实测 95% |
 | AC-05 | 篡改数据库评价记录后能检出不一致 | ✅ **已实测**：基线通过，篡改总分/评语/维度分/评价人**全部检出**，逐项还原后恢复通过 |
 | AC-06 | 雷达图随协作数据变化正确刷新；可导出带验证码的鉴定报告 | ✅ **已实测**：实时计算保证即时刷新；报告导出带校验码，可匿名验真 |
+| AC-07 | 信用值随履约/评价变动，申诉与仲裁投票流程完整 | ✅ **已实测**：五因子明细可追溯；3 名委员匿名投票 2:1 裁决并自动执行信用调整 |
 
 ---
 

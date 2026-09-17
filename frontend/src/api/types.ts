@@ -75,6 +75,183 @@ export interface PlatformInfo {
   apiPrefix: string
 }
 
+/* ==================== 信用与社区治理（模块 M8） ==================== */
+
+/** 信用因子明细 */
+export interface CreditFactor {
+  name: string
+  /** null 表示该因子无数据（权重会被分摊到其他因子） */
+  score: number | null
+  weight: number
+  weightPercent: number
+  detail: string
+}
+
+/** 信用等级权限规则（公示用） */
+export interface CreditLevelRule {
+  level: string
+  label: string
+  minScore: number
+  maxScore: number | null
+  exchangeQuota: number
+  eligibleArbitrator: boolean
+  privilege: string
+}
+
+/** 我的信用详情 */
+export interface CreditDetail {
+  sno: string
+  name: string
+  creditScore: number
+  creditLevel: string
+  creditLevelLabel: string
+  privilege: string
+  exchangeQuota: number
+  eligibleArbitrator: boolean
+  computedScore: number
+  isNewUser: boolean
+  exchangeCount: number
+  totalHours: number
+  caliber: string
+  factors: CreditFactor[]
+  nextLevel: { label: string; needScore: number; gap: number; privilege: string } | null
+  ledger: Array<{
+    id: number
+    delta: number
+    scoreAfter: number
+    reason: string
+    remark: string | null
+    createdAt: string
+  }>
+}
+
+/** 治理规则公示 */
+export interface GovernanceRule {
+  creditLevels: CreditLevelRule[]
+  disputeTypes: Array<{ code: string; label: string; description: string }>
+  flow: {
+    steps: string[]
+    arbitratorEligibility: string
+    voteRule: string
+    penaltyRule: Record<string, string>
+  }
+  auditRule: string
+}
+
+/** 治理动态 / 审计记录 */
+export interface GovernanceLog {
+  id: number
+  action: string
+  actionLabel: string
+  actorSno: string
+  actorRole: string
+  targetType: string | null
+  targetId: string | null
+  summary: string
+  reason: string | null
+  visible: boolean
+  systemAction: boolean
+  createdAt: string
+}
+
+/** 争议项 */
+export interface DisputeItem {
+  id: number
+  recordId: number
+  recordNo: string | null
+  exchangeTitle: string | null
+  disputeType: string
+  disputeTypeLabel: string
+  applicant: string
+  applicantName: string
+  respondent: string
+  respondentName: string
+  reason: string
+  status: string
+  statusLabel: string
+  arbitratorCount: number
+  voteCount: number
+  voteDeadline: string | null
+  voteExpired: boolean
+  verdict: string | null
+  resolvedBy: string | null
+  resolvedAt: string | null
+  createdAt: string
+  myRole: 'APPLICANT' | 'RESPONDENT' | 'ARBITRATOR'
+  /** 详情接口附加字段 */
+  canDefense?: boolean
+  canVote?: boolean
+  myVote?: ArbitrationVote | null
+  voteResult?: {
+    total: number
+    forApplicant: number
+    forRespondent: number
+    abstain: number
+    comments: string[]
+  } | null
+  executionLog?: Record<string, unknown> | null
+}
+
+/** 仲裁投票请求 */
+export interface ArbitrationVote {
+  vote: 'APPLICANT' | 'RESPONDENT' | 'ABSTAIN'
+  comment?: string
+}
+
+/** 卷宗（FR-M8-04，委员表决的事实依据） */
+export interface CaseFile {
+  exchange: {
+    recordNo: string
+    title: string
+    description: string | null
+    statusLabel: string
+    startedAt: string | null
+    finishedAt: string | null
+    expectedHours: number | null
+    actualHours: number | null
+  }
+  parties: Array<{
+    sno: string
+    name: string
+    college: string | null
+    role: string
+    creditScore: number | null
+    provideSkill: string | null
+  }>
+  tasks: Array<{
+    title: string
+    assignee: string
+    status: string | null
+    deadline: string | null
+    doneAt: string | null
+    overdue: boolean
+    evidenceUrl: string | null
+  }>
+  taskSummary: { total: number; done: number; overdue: number; completionRate: string | null }
+  communication: { messageCount: number; giverMessages: number; takerMessages: number }
+  evaluations: Array<{
+    from: string
+    to: string
+    totalScore: number
+    comment: string | null
+    anonymous: boolean
+    timeoutScored: boolean
+    sealedAt: string
+    /** 评价哈希是否完整 —— 若为 false 说明存证被改动，委员应当警惕 */
+    integrityOk: boolean
+  }>
+  timeline: string[]
+  claim: {
+    type: string
+    typeLabel: string
+    reason: string
+    statement: string | null
+    evidence: string | null
+    applicant: string
+    respondent: string
+  }
+}
+
 /* ==================== 数字档案与能力画像（模块 M7） ==================== */
 
 /** 单个能力维度的得分与出处（FR-M7-02） */
