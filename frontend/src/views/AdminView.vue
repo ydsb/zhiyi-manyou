@@ -6,6 +6,7 @@ import {
   callTool,
   exportSkills,
   listTools,
+  type AdminEvaluationReviewRow,
   type AdminReportRow,
   type AdminUserRow,
   type DashboardOverview
@@ -43,6 +44,16 @@ const pendingDemands = ref<Array<Record<string, unknown>>>([])
 const reports = ref<AdminReportRow[]>([])
 const reportTotal = ref(0)
 const reportStatus = ref('PENDING')
+
+/**
+ * 待复核互评（FR-M9-03）。
+ *
+ * 这批记录来自 M6 的互刷检测：评价提交时若命中风险特征
+ * （如"进入待互评后仅 1 分钟即提交评价"），会被标为 PENDING 并写入风险说明，
+ * 同时计入顶部"待办"数字。此前没有任何界面消费它，待办数字永远降不下来。
+ */
+const evaluations = ref<AdminEvaluationReviewRow[]>([])
+const evalReviewStatus = ref<'PENDING' | 'PASSED' | 'REJECTED'>('PENDING')
 
 /* ---------------- 技能导入 ---------------- */
 const importText = ref('')
@@ -215,17 +226,53 @@ async function recalcCredit(row: AdminUserRow) {
 async function loadReview() {
   loading.value = true
   try {
-    const [d, r] = await Promise.all([
+    const [d, r, e] = await Promise.all([
       adminApi.pendingDemands(1, 20),
-      adminApi.reports(reportStatus.value || undefined, 1, 20)
+      adminApi.reports(reportStatus.value || undefined, 1, 20),
+      adminApi.pendingEvaluations(evalReviewStatus.value, 1, 50)
     ])
     pendingDemands.value = d.records
     reports.value = r.records
     reportTotal.value = r.total
+    evaluations.value = e.records
   } catch {
     // 已提示
   } finally {
     loading.value = false
+  }
+}
+
+/** 只刷新待复核互评（切换状态筛选用，避免连带重载其余列表） */
+async function loadEvaluations() {
+  try {
+    const e = await adminApi.pendingEvaluations(evalReviewStatus.value, 1, 50)
+    evaluations.value = e.records
+  } catch {
+    // 已提示
+  }
+}
+
+/**
+ * 复核一条互评（FR-M9-03）。
+ *
+ * 结论必须附说明：被处置方有权知道依据，与"管理操作必须填写说明"同一口径
+ * （后端也会强制校验 audit 说明非空）。
+ */
+async function reviewEvaluation(row: AdminEvaluationReviewRow, decision: 'PASSED' | 'REJECTED') {
+  const remark = await withRemark(
+    decision === 'PASSED' ? '通过该互评' : '驳回该互评',
+    decision === 'PASSED'
+      ? '通过后该评价正常计入能力画像与信用。请说明采信依据。'
+      : '驳回表示不采信该评价。请说明判定依据（如确认存在互刷、无真实协作过程）。'
+  )
+  if (!remark) return
+  try {
+    await adminApi.reviewEvaluation(row.id, decision, remark)
+    ElMessage.success(decision === 'PASSED' ? '已通过复核' : '已驳回该互评')
+    // 复核后待办数字会变化，必须同时刷新 todo 与列表
+    await Promise.all([loadEvaluations(), loadTodo()])
+  } catch {
+    // 已提示
   }
 }
 
@@ -539,7 +586,70 @@ onMounted(() => {
 
     <!-- ==================== 内容审核 ==================== -->
     <template v-else-if="activeTab === 'review'">
+      <!--
+        待复核互评（FR-M9-03）。
+
+        为什么必须放在最前面：M6 的互刷检测会把"进入待互评后极短时间内就互相打分"
+        这类可疑评价标为 PENDING，并写清楚命中的风险特征；顶部标签的"待办 N"
+        也把这批算进去。但此前没有任何界面能列出或处置它们 ——
+        徽标显示"待办 6"，管理员点进来却只有卡片与举报两个列表，
+        找不到那 6 条在哪，也无法让数字降下来。这里补上这个入口。
+      -->
       <div class="zy-card panel">
+        <div class="panel__head">
+          <span class="panel__title">
+            待复核互评
+            <el-tag v-if="todo.pendingEvaluations" size="small" type="danger" effect="dark">
+              {{ todo.pendingEvaluations }}
+            </el-tag>
+          </span>
+          <el-radio-group v-model="evalReviewStatus" size="small" @change="loadEvaluations">
+            <el-radio-button value="PENDING">待复核</el-radio-button>
+            <el-radio-button value="PASSED">已通过</el-radio-button>
+            <el-radio-button value="REJECTED">已驳回</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <p class="panel__desc">
+          互刷检测会标记"疑似未真实协作"的评价（如进入待互评后极短时间内即提交），
+          由人工判定是否需要干预。复核只决定<b>是否采信</b>，不修改分值 ——
+          需要调整分值时另行追加修正记录，使审计日志能区分两种操作。
+        </p>
+
+        <div v-if="evaluations.length === 0" class="empty-hint">
+          {{ evalReviewStatus === 'PENDING' ? '没有待复核的互评。' : '该状态下没有记录。' }}
+        </div>
+
+        <div v-for="e in evaluations" :key="e.id" class="review-row">
+          <div class="review-row__main">
+            <div class="review-row__top">
+              <span class="review-row__title">{{ e.fromName }} → {{ e.toName }}</span>
+              <el-tag size="small" type="warning" effect="plain">互评总分 {{ e.totalScore ?? '—' }}</el-tag>
+              <el-tag v-if="e.timeoutFlag === 1" size="small" type="info" effect="plain">超时默认计分</el-tag>
+              <el-tag v-if="e.disputeFlag === 1" size="small" type="danger" effect="plain">已被申诉</el-tag>
+              <el-tag
+                v-if="e.integrityOk === false"
+                size="small"
+                type="danger"
+                effect="dark"
+              >存证校验未通过</el-tag>
+            </div>
+            <div class="review-row__desc">
+              交换：{{ e.recordNo || ('#' + e.recordId) }}
+              <template v-if="e.recordTitle"> · {{ e.recordTitle }}</template>
+            </div>
+            <div v-if="e.comment" class="review-row__desc">评语：{{ e.comment }}</div>
+            <div v-if="e.auditRemark" class="review-row__remark">命中风险：{{ e.auditRemark }}</div>
+            <div class="review-row__meta">封存于 {{ fmt(e.sealedAt) }}</div>
+          </div>
+          <div v-if="e.auditStatus === 'PENDING'" class="review-row__ops">
+            <el-button size="small" type="primary" @click="reviewEvaluation(e, 'PASSED')">通过</el-button>
+            <el-button size="small" type="danger" plain @click="reviewEvaluation(e, 'REJECTED')">驳回</el-button>
+          </div>
+        </div>
+      </div>
+
+      <div class="zy-card panel mt">
         <div class="panel__head">
           <span class="panel__title">待审需求卡片</span>
           <el-tag size="small" type="info" effect="plain">

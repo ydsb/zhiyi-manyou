@@ -130,6 +130,8 @@ public enum ErrorCode {
     REPORT_TARGET_NOT_FOUND(3097, "被举报的内容不存在"),
     IMPORT_FILE_EMPTY(3098, "导入内容为空"),
     IMPORT_TOO_MANY_ROWS(3099, "单次导入条数超出上限"),
+    EVALUATION_AUDIT_STATUS_ILLEGAL(3100, "该互评当前不需要人工复核"),
+    EVALUATION_AUDIT_DECISION_ILLEGAL(3101, "复核结论只接受 PASSED 或 REJECTED"),
 
     /* ---------------- 4xxx 外部依赖 ---------------- */
     AI_SERVICE_UNAVAILABLE(4001, "语义解析服务暂不可用，已降级为标签匹配"),

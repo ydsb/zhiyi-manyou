@@ -3,6 +3,7 @@ package com.nwu.zhiyi.service.evaluation;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nwu.zhiyi.api.dto.collab.ProcessSummaryVO;
 import com.nwu.zhiyi.api.dto.evaluation.EvaluationAmendRequest;
+import com.nwu.zhiyi.api.dto.evaluation.EvaluationReviewRequest;
 import com.nwu.zhiyi.api.dto.evaluation.EvaluationStatusVO;
 import com.nwu.zhiyi.api.dto.evaluation.EvaluationSubmitRequest;
 import com.nwu.zhiyi.api.dto.evaluation.EvaluationVO;
@@ -406,6 +407,113 @@ public class EvaluationServiceImpl implements EvaluationService {
 
         log.info("[互评修正] evaluation={} 由 {} 修正：{} → {}，原因：{}",
                 evaluationId, operator, before, after, request.getReason());
+        return detail(evaluationId, operator);
+    }
+
+    /* ==================== 待审互评的列出与复核（FR-M9-03） ==================== */
+
+    /** 复核状态常量 */
+    private static final String AUDIT_PENDING = "PENDING";
+    private static final String AUDIT_PASSED = "PASSED";
+    private static final String AUDIT_REJECTED = "REJECTED";
+
+    @Override
+    public EvaluationReviewPage listForReview(String status, int page, int size) {
+        String target = (status == null || status.isBlank()) ? AUDIT_PENDING : status.trim().toUpperCase();
+        int p = Math.max(1, page);
+        int s = Math.min(100, Math.max(1, size));
+
+        Long total = evaluationMapper.selectCount(new LambdaQueryWrapper<EvaluationGrade>()
+                .eq(EvaluationGrade::getAuditStatus, target));
+
+        List<EvaluationGrade> rows = evaluationMapper.selectList(
+                new LambdaQueryWrapper<EvaluationGrade>()
+                        .eq(EvaluationGrade::getAuditStatus, target)
+                        // 待复核的先看最久的：先到先处理，避免老记录永远沉底
+                        .orderByAsc(EvaluationGrade::getSealedAt)
+                        .orderByAsc(EvaluationGrade::getId)
+                        .last("LIMIT " + ((p - 1) * s) + ", " + s));
+
+        if (rows.isEmpty()) {
+            return new EvaluationReviewPage(List.of(), total == null ? 0 : total, p, s);
+        }
+
+        // 批量取交换与姓名，避免逐行查询（N+1）
+        Set<Long> recordIds = rows.stream().map(EvaluationGrade::getRecordId).collect(Collectors.toSet());
+        Map<Long, ExchangeRecord> records = exchangeMapper.selectList(
+                        new LambdaQueryWrapper<ExchangeRecord>().in(ExchangeRecord::getId, recordIds))
+                .stream().collect(Collectors.toMap(ExchangeRecord::getId, r -> r, (a, b) -> a));
+
+        Set<String> snos = new java.util.HashSet<>();
+        rows.forEach(r -> {
+            snos.add(r.getFromSno());
+            snos.add(r.getToSno());
+        });
+        Map<String, String> names = studentMapper.selectList(
+                        new LambdaQueryWrapper<Student>().in(Student::getSno, snos))
+                .stream().collect(Collectors.toMap(Student::getSno, Student::displayName, (a, b) -> a));
+
+        List<ReviewRow> list = new ArrayList<>();
+        for (EvaluationGrade g : rows) {
+            ExchangeRecord rec = records.get(g.getRecordId());
+            list.add(new ReviewRow(
+                    g.getId(),
+                    g.getRecordId(),
+                    rec == null ? null : rec.getRecordNo(),
+                    rec == null ? null : rec.getTitle(),
+                    g.getFromSno(), names.getOrDefault(g.getFromSno(), g.getFromSno()),
+                    g.getToSno(), names.getOrDefault(g.getToSno(), g.getToSno()),
+                    g.getTotalScore(), g.getComment(),
+                    g.getAuditStatus(), g.getAuditRemark(),
+                    g.getDisputeFlag(), g.getTimeoutFlag(),
+                    g.getSealedAt(),
+                    // 存证校验：审核界面必须能看出记录本身是否完好，
+                    // 否则管理员可能在已被篡改的数据上做判断
+                    g.verifyIntegrity()));
+        }
+        return new EvaluationReviewPage(list, total == null ? 0 : total, p, s);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public EvaluationVO review(Long evaluationId, String operator, EvaluationReviewRequest request) {
+        EvaluationGrade grade = evaluationMapper.selectById(evaluationId);
+        if (grade == null) {
+            throw new BusinessException(ErrorCode.EVALUATION_NOT_FOUND);
+        }
+
+        String decision = request.getDecision() == null ? "" : request.getDecision().trim().toUpperCase();
+        if (!AUDIT_PASSED.equals(decision) && !AUDIT_REJECTED.equals(decision)) {
+            throw new BusinessException(ErrorCode.EVALUATION_AUDIT_DECISION_ILLEGAL,
+                    "无法识别的复核结论：" + request.getDecision());
+        }
+        /*
+         * 只允许复核处于 PENDING 的记录。
+         *
+         * 为什么不做成"可反复改判"：待办数字的语义是"还有多少条需要处理"，
+         * 若允许对已复核记录重复提交，同一条会被反复计入/移出，数字就失去意义；
+         * 更重要的是审计日志里会出现多次互相矛盾的结论。
+         * 真要改判，应走 amend 追加修正记录，那条链路本来就保留前后值。
+         */
+        if (!AUDIT_PENDING.equals(grade.getAuditStatus())) {
+            throw new BusinessException(ErrorCode.EVALUATION_AUDIT_STATUS_ILLEGAL,
+                    "该互评当前状态为「" + grade.getAuditStatus() + "」，不需要人工复核");
+        }
+
+        /*
+         * 只更新审核状态与说明，绝不触碰参与哈希的字段
+         * （dimCanonical / totalScore / comment / sealedAt）。
+         * 改它们会让 record_hash 校验失败，把一条完好的存证变成"疑似被篡改"。
+         * auditStatus / auditRemark 不在哈希原文里，因此可以安全更新。
+         */
+        evaluationMapper.updateById(new EvaluationGrade()
+                .setId(evaluationId)
+                .setAuditStatus(decision)
+                .setAuditRemark("[人工复核] " + request.getRemark().trim()));
+
+        log.info("[互评复核] evaluation={} 由 {} 判定为 {}：{}",
+                evaluationId, operator, decision, request.getRemark().trim());
+
         return detail(evaluationId, operator);
     }
 

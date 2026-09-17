@@ -281,11 +281,11 @@ onMounted(load)
           <div class="factor__head">
             <span class="factor__name">{{ f.name }}</span>
             <span class="factor__weight">权重 {{ f.weightPercent }}%</span>
-            <span v-if="f.score !== null" class="factor__score">{{ f.score }}</span>
+            <span v-if="f.score != null" class="factor__score">{{ f.score }}</span>
             <span v-else class="factor__score factor__score--none">无数据</span>
           </div>
           <el-progress
-            v-if="f.score !== null"
+            v-if="f.score != null"
             :percentage="Math.min(100, f.score)"
             :stroke-width="6"
             :show-text="false"
@@ -392,7 +392,7 @@ onMounted(load)
           <el-table-column prop="label" label="等级" width="80" />
           <el-table-column label="分数区间" width="110">
             <template #default="{ row }">
-              {{ row.minScore }} ~ {{ row.maxScore === null ? '∞' : row.maxScore }}
+              {{ row.minScore }} ~ {{ row.maxScore == null ? '∞' : row.maxScore }}
             </template>
           </el-table-column>
           <el-table-column prop="exchangeQuota" label="并发上限" width="90" />

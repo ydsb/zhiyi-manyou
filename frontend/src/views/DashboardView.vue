@@ -95,7 +95,11 @@ function renderChart() {
         trigger: 'item',
         formatter: () => {
           const lines = dims.map(
-            (d) => `${d.label}：${d.score === null ? '暂无数据' : d.score + ' 分'}`
+            // 用 `== null` 而不是 `=== null`：后端 application.yml 配了
+            // `default-property-inclusion: non_null`，无数据的维度**整个 score 字段
+            // 都不会出现在 JSON 里**，前端拿到的是 undefined 而非 null，
+            // 只判 null 会漏掉，于是页面上显示 "undefined"。
+            (d) => `${d.label}：${d.score == null ? '暂无数据' : d.score + ' 分'}`
           )
           return `<b>${radar.value?.name ?? ''}</b><br/>${lines.join('<br/>')}`
         }
@@ -285,7 +289,7 @@ onBeforeUnmount(() => {
             <div v-for="d in radar.dimensions" :key="d.key" class="dim">
               <div class="dim__top">
                 <span class="dim__label">{{ d.label }}</span>
-                <span v-if="d.score !== null" class="dim__score">{{ d.score }}</span>
+                <span v-if="d.score != null" class="dim__score">{{ d.score }}</span>
                 <span v-else class="dim__score dim__score--none">暂无数据</span>
               </div>
               <div class="dim__desc">{{ d.description }}</div>

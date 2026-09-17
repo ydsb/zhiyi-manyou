@@ -295,9 +295,22 @@ function exportData() {
 </template>
 
 <style scoped>
+/*
+ * 这里刻意**不**写 `height: 100%`。
+ *
+ * 曾经写过，结果把页面点坏了：`.panel` 自身有 `padding: 16px 18px`，
+ * 而 `height: 100%` 在 `box-sizing: border-box` 下虽然会把 padding 算进高度，
+ * 但当列内有多张卡片时，卡片被拉到列高后再叠加外边距，
+ * 最后一张卡片溢出列底部约 14px，正好压住下方「我的技能画像」
+ * 面板的标题行 —— 表现为**「编辑画像」按钮点不动**
+ * （`elementFromPoint` 返回的是被遮挡的 panel__head，而不是按钮）。
+ *
+ * 这个缺陷很隐蔽：按钮可见、未禁用、hover 也有反馈，
+ * 只是点击事件被上层元素吃掉，所以看起来像"功能没做"。
+ * 个人中心不需要等高卡片，因此直接让卡片按内容自适应高度。
+ */
 .panel {
   padding: 16px 18px;
-  height: 100%;
 }
 
 .panel__head {

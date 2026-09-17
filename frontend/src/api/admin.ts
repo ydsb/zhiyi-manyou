@@ -31,6 +31,34 @@ export interface AdminUserRow {
   createdAt: string
 }
 
+/**
+ * 待复核互评的一行（FR-M9-03）。
+ *
+ * 字段刻意扁平、不复用面向被评价人的评价视图：审核需要知道
+ * "谁评价谁、什么交换、命中了什么风险、存证是否完好"，
+ * 而面向被评价人的视图会做匿名化与可见性处理，可能隐去管理所需信息。
+ */
+export interface AdminEvaluationReviewRow {
+  id: number
+  recordId: number
+  recordNo: string | null
+  recordTitle: string | null
+  fromSno: string
+  fromName: string
+  toSno: string
+  toName: string
+  totalScore: number | null
+  comment: string | null
+  auditStatus: string
+  /** 命中的风险特征说明，如"进入待互评后仅 1 分钟即提交" */
+  auditRemark: string | null
+  disputeFlag: number | null
+  timeoutFlag: number | null
+  sealedAt: string | null
+  /** 存证校验是否通过；false 表示记录已被改动，需谨慎判断 */
+  integrityOk: boolean | null
+}
+
 export interface AdminReportRow {
   id: number
   reporterSno: string
@@ -188,6 +216,34 @@ export const adminApi = {
       url: `/admin/content/reports/${id}/handle`,
       method: 'post',
       data: { accepted, remark }
+    })
+  },
+
+  /**
+   * 待人工复核的互评列表（FR-M9-03）。
+   *
+   * 互刷检测会把可疑评价标为 PENDING 并记下命中的风险特征
+   * （如"进入待互评后仅 1 分钟即提交，可能未真实协作"）。
+   * 待办徽标把这些算作待处理事项，因此必须有对应的处置入口。
+   */
+  pendingEvaluations(status = 'PENDING', page = 1, size = 20) {
+    return request<PageData<AdminEvaluationReviewRow>>({
+      url: '/admin/evaluations/pending',
+      method: 'get',
+      params: { status, page, size }
+    })
+  },
+
+  /**
+   * 人工复核一条互评（FR-M9-03）。
+   *
+   * 只判定"是否需要人工干预"，不改分值；需要改分请另调 amendEvaluation。
+   */
+  reviewEvaluation(id: number, decision: 'PASSED' | 'REJECTED', remark: string) {
+    return request<Record<string, unknown>>({
+      url: `/admin/evaluations/${id}/review`,
+      method: 'post',
+      data: { decision, remark }
     })
   },
 
