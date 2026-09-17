@@ -7,6 +7,7 @@ import com.nwu.zhiyi.api.dto.RegisterRequest;
 import com.nwu.zhiyi.api.dto.UserInfoVO;
 import com.nwu.zhiyi.common.api.ErrorCode;
 import com.nwu.zhiyi.common.enums.AuthStatus;
+import com.nwu.zhiyi.common.enums.CreditLevel;
 import com.nwu.zhiyi.common.enums.AuthType;
 import com.nwu.zhiyi.common.enums.UserRole;
 import com.nwu.zhiyi.common.exception.BusinessException;
@@ -105,7 +106,7 @@ public class AuthService {
                 .setAuthStatus(AuthStatus.UNVERIFIED)
                 .setRole(UserRole.USER)
                 .setCreditScore(100)
-                .setCreditLevel(1)
+                .setCreditLevel(CreditLevel.of(CreditLevel.INIT_SCORE).levelCode())
                 .setExchangeQuota(3)
                 .setStatus(1)
                 .setLastLoginAt(LocalDateTime.now());

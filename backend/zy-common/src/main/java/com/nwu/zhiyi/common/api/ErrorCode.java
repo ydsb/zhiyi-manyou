@@ -100,6 +100,22 @@ public enum ErrorCode {
     REPORT_EXPORT_FAILED(3065, "报告导出失败"),
     PROFILE_DIMENSION_MAPPING_MISSING(3066, "技能未映射到能力维度"),
 
+    /* ---------------- 3xxx 信用体系与社区治理（M8） ---------------- */
+    CREDIT_ADJUST_FORBIDDEN(3070, "无权调整信用值"),
+    DISPUTE_NOT_FOUND(3071, "争议记录不存在"),
+    DISPUTE_RECORD_NOT_FOUND(3073, "争议关联的交换记录不存在"),
+    DISPUTE_NOT_PARTICIPANT(3074, "只有交换参与方才能发起申诉"),
+    DISPUTE_STATUS_ILLEGAL(3075, "当前争议状态不允许该操作"),
+    DISPUTE_EVIDENCE_EMPTY(3076, "请至少提交一项证据或文字陈述"),
+    ARBITRATOR_NOT_ENOUGH(3077, "符合条件的仲裁委员不足，已转管理员处置"),
+    ARBITRATOR_NOT_ELIGIBLE(3078, "你不具备该争议的仲裁资格"),
+    ARBITRATION_ALREADY_VOTED(3079, "你已对该争议投过票"),
+    ARBITRATION_VOTE_EXPIRED(3080, "该争议的表决已截止"),
+    ARBITRATION_DEADLINE_NOT_REACHED(3081, "表决尚未截止，无法提前结算"),
+    GOVERNANCE_REASON_REQUIRED(3082, "管理员干预必须填写理由"),
+    GOVERNANCE_AUDIT_NOT_FOUND(3083, "审计记录不存在"),
+    ACCOUNT_BANNED(3084, "账号已被封禁，无法进行该操作"),
+
     /* ---------------- 4xxx 外部依赖 ---------------- */
     AI_SERVICE_UNAVAILABLE(4001, "语义解析服务暂不可用，已降级为标签匹配"),
     VECTOR_STORE_ERROR(4002, "向量库访问异常"),

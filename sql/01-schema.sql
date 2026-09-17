@@ -39,8 +39,8 @@ CREATE TABLE IF NOT EXISTS `zy_student`
     `auth_type`     VARCHAR(16)  NOT NULL DEFAULT 'LOCAL' COMMENT '认证方式：CAS/OAUTH2/LOCAL/VERIFY',
     `auth_status`   VARCHAR(16)  NOT NULL DEFAULT 'UNVERIFIED' COMMENT '实名核验状态：UNVERIFIED未核验/PENDING核验中/VERIFIED已核验/FAILED核验失败',
     `role`          VARCHAR(16)  NOT NULL DEFAULT 'USER' COMMENT '角色：USER/ARBITRATOR/ADMIN',
-    `credit_score`  INT          NOT NULL DEFAULT 100 COMMENT '信用值（初始 100）',
-    `credit_level`  TINYINT      NOT NULL DEFAULT 1 COMMENT '信用等级 1~5',
+    `credit_score`  INT          NOT NULL DEFAULT 100 COMMENT '信用值 0~200（初始 100 为基准分，裁决奖励可叠加）',
+    `credit_level`  TINYINT      NOT NULL DEFAULT 3 COMMENT '信用等级编号 1~5（对应 CreditLevel 枚举：1受限/2正常/3良好/4优秀/5卓越）',
     `exchange_quota` INT         NOT NULL DEFAULT 5 COMMENT '并发进行中的交换上限（FR-M4-09 默认 5）',
     `status`        TINYINT      NOT NULL DEFAULT 1 COMMENT '账号状态：0禁用 1正常 2注销',
     `last_login_at` DATETIME              DEFAULT NULL COMMENT '最近登录时间',
@@ -605,6 +605,28 @@ VALUES ('2024117420', '李泽宬', '知驿·漫游', '$2a$10$MJyq4Y7DyH8hD.wwsFO
         '软件学院', '软件工程', '2024级', 'LOCAL', 'VERIFIED', 'USER'),
        ('2024117422', '杨渡', '杨渡', '$2a$10$MJyq4Y7DyH8hD.wwsFOWWux65d7UEhHYKBeEfnI.b/KlHzYD.2jhO',
         '计算机学院', '人工智能', '2024级', 'LOCAL', 'VERIFIED', 'USER')
+ON DUPLICATE KEY UPDATE `updated_at` = CURRENT_TIMESTAMP;
+
+-- -----------------------------------------------------------------------------
+-- 仲裁委员演示账号（密码同为 123456）
+--
+-- 【为什么需要这三个账号】
+--   FR-M8-04 要求仲裁委员会由「跨学科、高信用」用户组成，且需排除当事人及其学院。
+--   只有 3 个常规演示用户时，一旦其中两人发生争议，合格委员就只剩 1 人，
+--   达不到 3 人的门槛，只能走管理员兜底分支 —— 委员会匿名投票这条主流程
+--   就演示不出来了。
+--
+--   因此准备 3 位来自不同学院、信用等级为「优秀」（≥140）的账号，
+--   保证任意演示场景下都能凑齐 3 名合格委员。
+-- -----------------------------------------------------------------------------
+INSERT INTO `zy_student` (`sno`, `sname`, `nickname`, `password`, `college`, `major`, `grade`,
+                          `auth_type`, `auth_status`, `role`, `credit_score`, `credit_level`, `exchange_quota`)
+VALUES ('2023117001', '陈思远', '陈思远', '$2a$10$MJyq4Y7DyH8hD.wwsFOWWux65d7UEhHYKBeEfnI.b/KlHzYD.2jhO',
+        '数学学院', '数学与应用数学', '2023级', 'LOCAL', 'VERIFIED', 'USER', 155, 4, 8),
+       ('2023117002', '林砚辞', '林砚辞', '$2a$10$MJyq4Y7DyH8hD.wwsFOWWux65d7UEhHYKBeEfnI.b/KlHzYD.2jhO',
+        '新闻传播学院', '新闻学', '2023级', 'LOCAL', 'VERIFIED', 'USER', 148, 4, 8),
+       ('2022117003', '赵怀瑾', '赵怀瑾', '$2a$10$MJyq4Y7DyH8hD.wwsFOWWux65d7UEhHYKBeEfnI.b/KlHzYD.2jhO',
+        '化学与材料学院', '材料化学', '2022级', 'LOCAL', 'VERIFIED', 'USER', 162, 4, 8)
 ON DUPLICATE KEY UPDATE `updated_at` = CURRENT_TIMESTAMP;
 
 -- 技能标签示例（跨学科示范数据，完整 V1.0 需覆盖 ≥50 个二级学科、≥1000 个标签）

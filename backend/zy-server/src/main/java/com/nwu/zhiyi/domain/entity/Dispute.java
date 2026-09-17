@@ -51,6 +51,47 @@ public class Dispute implements Serializable {
 
     private LocalDateTime resolvedAt;
 
+    /* ==================== M8 新增字段 ==================== */
+
+    /** 争议类型（{@code DisputeType}），用于治理规则迭代时的类型统计 */
+    private String disputeType;
+
+    /** 申诉人陈述 */
+    private String statement;
+
+    /**
+     * 被申诉人答辩。
+     *
+     * <p>给被告申辩机会是程序正义的最低要求 —— 单方陈述即定罪，
+     * 委员会看到的就只是片面事实，裁决必然不可靠。
+     */
+    private String defense;
+
+    /** 表决截止时间（超时未投视为弃权） */
+    private LocalDateTime voteDeadline;
+
+    /**
+     * 卷宗快照（JSON）：提交时抽取的协作全过程数据。
+     *
+     * <p><b>为什么存快照而不是每次实时拼接</b>：委员表决依据的必须是一份
+     * <b>固定不变</b>的材料。若每次查看都重新查询，后续新产生的数据
+     * （例如被申诉人又发了几条留言）会改变卷宗内容，导致"委员 A 与委员 B
+     * 看到的事实不同"，裁决的正当性就站不住了。
+     */
+    private String caseFile;
+
+    /** 裁决执行明细（JSON）：信用变动、评价修正、账号处置 */
+    private String executionLog;
+
+    /** 裁决方式：VOTE 委员会投票 / ADMIN 管理员紧急处置 */
+    private String resolvedBy;
+
+    /** 应参与仲裁的委员数 */
+    private Integer arbitratorCount;
+
+    /** 已投票数 */
+    private Integer voteCount;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
@@ -60,5 +101,20 @@ public class Dispute implements Serializable {
     /** 是否仍在处理中 */
     public boolean isOpen() {
         return "PENDING".equals(status) || "VOTING".equals(status);
+    }
+
+    /** 是否处于投票阶段 */
+    public boolean isVoting() {
+        return "VOTING".equals(status);
+    }
+
+    /** 是否已结案（已裁决或已驳回） */
+    public boolean isFinal() {
+        return "RESOLVED".equals(status) || "REJECTED".equals(status);
+    }
+
+    /** 表决是否已截止 */
+    public boolean isVoteExpired() {
+        return voteDeadline != null && LocalDateTime.now().isAfter(voteDeadline);
     }
 }

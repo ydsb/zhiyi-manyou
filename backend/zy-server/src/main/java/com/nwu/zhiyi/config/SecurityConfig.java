@@ -86,6 +86,18 @@ public class SecurityConfig {
              * 且接口只返回该凭证的存证状态与脱敏后的持有人信息。
              */
             "/api/certificates/**",
+            /*
+             * 社区治理公示（FR-M8-07）：匿名开放。
+             *
+             * 治理透明是平台公信力的前提 —— 连"规则是什么""最近裁决了什么"
+             * 都要登录才能看，就谈不上公示，也无法让潜在用户建立信任。
+             * 安全上无风险：这些接口只返回规则文本与已脱敏的治理动态，
+             * 不含任何协作过程数据或个人隐私。
+             */
+            "/api/governance/rules",
+            "/api/governance/logs",
+            "/api/governance/statistics",
+            "/api/credit/levels",
             "/actuator/health/**",
             "/actuator/info",
             // 容器错误页：放行后未匹配的路径才能被 DispatcherServlet 接管
