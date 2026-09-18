@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { skillApi, buildGraphView } from '@/api/skill'
 import type { ParseResult, SkillRelation, SkillTree } from '@/api/types'
@@ -58,6 +58,55 @@ const filteredTree = computed(() => {
 const visibleSkillCount = computed(() =>
   filteredTree.value.reduce((sum, c) => sum + c.children.reduce((s, x) => s + x.skills.length, 0), 0)
 )
+
+/* ---------------- 渐进渲染（性能） ---------------- */
+
+/**
+ * 首屏渲染的技能卡片上限，点"加载更多"再逐批追加。
+ *
+ * <p><b>为什么必须分批</b>：788 个技能卡片每个含名称、别名、难度星级、
+ * 热度共约 60 个 DOM 节点，全量渲染实测产生 **48569 个节点**，
+ * 而本项目其他页面只有 300~430 个（dashboard 404、exchanges 426、profile 272）。
+ *
+ * <p>代价是实打实的卡顿：从本页点导航切走时，Vue 要卸载这近 5 万个节点，
+ * 实测 URL 变化被阻塞约 0.5s（开发服务器下高达 8.6s），
+ * 表现就是"点了没反应、卡在技能图谱这页"。
+ *
+ * <p>首批 120 个足够铺满两屏，搜索仍作用于**全量**数据（见 filteredTree），
+ * 所以"找不到标签"的情况不会出现 —— 只是不一次性画出来。
+ */
+const RENDER_STEP = 120
+const renderLimit = ref(RENDER_STEP)
+
+/** 原始过滤结果 → 按上限截断后的树（保持门类/学科层级结构） */
+const renderedTree = computed(() => {
+  let budget = renderLimit.value
+  const out: typeof filteredTree.value = []
+  for (const cat of filteredTree.value) {
+    if (budget <= 0) break
+    const children: typeof cat.children = []
+    for (const sub of cat.children) {
+      if (budget <= 0) break
+      if (sub.skills.length <= budget) {
+        children.push(sub)
+        budget -= sub.skills.length
+      } else {
+        children.push({ ...sub, skills: sub.skills.slice(0, budget) })
+        budget = 0
+      }
+    }
+    if (children.length) out.push({ ...cat, children })
+  }
+  return out
+})
+
+/** 是否还有未渲染的技能 */
+const hasMoreSkills = computed(() => visibleSkillCount.value > renderLimit.value)
+
+/** 筛选条件变化时重置渲染上限，避免"换了筛选却只剩几条" */
+watch([keyword, activeL1], () => {
+  renderLimit.value = RENDER_STEP
+})
 
 const graphView = computed(() => buildGraphView(relations.value))
 
@@ -244,7 +293,7 @@ onMounted(() => {
             <el-tag size="small" effect="plain">目标 ≥ 50 学科 / 1000 标签</el-tag>
           </div>
 
-          <div v-for="cat in filteredTree" :key="cat.name" class="cat">
+          <div v-for="cat in renderedTree" :key="cat.name" class="cat">
             <div class="cat__name">
               {{ cat.name }}<span class="cat__count">{{ cat.skillCount }}</span>
             </div>
@@ -264,6 +313,21 @@ onMounted(() => {
           </div>
 
           <el-empty v-if="filteredTree.length === 0 && !loading" description="没有匹配的技能标签" />
+
+          <!--
+            渐进渲染的"加载更多"。
+            788 个卡片全量渲染会产生约 4.85 万个 DOM 节点，切换路由时卸载阻塞约 0.5s；
+            分批渲染后首屏只画 120 个。
+          -->
+          <div v-if="hasMoreSkills" class="more-skills">
+            <el-button text type="primary" @click="renderLimit += RENDER_STEP">
+              还有 {{ visibleSkillCount - renderLimit }} 个标签，加载更多
+            </el-button>
+            <span class="more-skills__hint">
+              （已显示 {{ renderLimit }} / {{ visibleSkillCount }}；搜索与筛选作用于全部
+              {{ visibleSkillCount }} 个标签）
+            </span>
+          </div>
         </div>
       </el-col>
 
@@ -664,6 +728,20 @@ code {
   color: var(--zy-text-secondary);
   width: 16px;
   text-align: right;
+}
+
+.more-skills {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--zy-border);
+  text-align: center;
+}
+
+.more-skills__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--zy-text-placeholder);
 }
 
 @media (max-width: 900px) {
