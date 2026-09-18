@@ -43,8 +43,20 @@ public class WorkspaceVO implements Serializable {
     private Integer expectedHours;
     private Double actualHours;
 
-    /** 是否已进入协作阶段（IN_PROGRESS / PENDING_EVAL / DISPUTED 为 true） */
+    /** 是否已进入协作阶段（IN_PROGRESS / PENDING_EVAL / DISPUTED 为 true，可写） */
     private Boolean collaborationActive;
+
+    /**
+     * 协作记录是否可读（比 {@link #collaborationActive} 更宽）。
+     *
+     * <p>已完成 / 已取消的交换为 true —— 交换结束后不能再改，但
+     * 任务、文件、留言、时间轴作为"我做过什么"的记录必须仍可查看，
+     * 否则做完一次协作就再也看不到过程痕迹，FR-M5 的过程留痕失去意义。
+     *
+     * <p>前端据此区分两种空态：协作还没开始（无内容，给引导）
+     * 与 协作已结束（只读查看历史记录）。
+     */
+    private Boolean collaborationReadable;
 
     /** 任务清单 */
     private List<CollabTaskVO> tasks;

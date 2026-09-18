@@ -563,8 +563,16 @@ export interface Workspace {
   deadlineAt?: string
   expectedHours?: number
   actualHours?: number
-  /** 是否已进入协作阶段（进行中/待互评/争议中） */
+  /** 是否已进入协作阶段（进行中/待互评/争议中）—— 为 true 时可写 */
   collaborationActive?: boolean
+  /**
+   * 协作记录是否可读（比 collaborationActive 更宽）。
+   *
+   * 已完成/已取消的交换为 true：不能再改，但任务、文件、留言、时间轴
+   * 作为"我做过什么"的记录仍可查看。前端据此区分两种空态 ——
+   * 协作还没开始（无内容，给引导）与协作已结束（只读查看历史）。
+   */
+  collaborationReadable?: boolean
   tasks: CollabTask[]
   files: CollabFile[]
   messages: CollabMessage[]

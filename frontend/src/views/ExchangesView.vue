@@ -302,6 +302,18 @@ onMounted(() => {
               plain
               @click="router.push({ name: 'Workspace', params: { recordId: ex.id } })"
             >协作工作台</el-button>
+            <!--
+              已结束的交换也要能进工作台。
+              原先只有进行中的状态才显示入口，交换一完成，任务、文件、留言、
+              时间轴就再也看不到 —— 而"过程留痕与学习记录"正是本模块的核心价值。
+              后端已放宽为只读可查（collaborationReadable），这里补上入口。
+            -->
+            <el-button
+              v-else-if="['COMPLETED', 'CANCELLED'].includes(ex.status)"
+              size="small"
+              plain
+              @click="router.push({ name: 'Workspace', params: { recordId: ex.id } })"
+            >查看协作记录</el-button>
             <el-button
               v-for="t in ex.allowedNextStatus ?? []"
               :key="t"

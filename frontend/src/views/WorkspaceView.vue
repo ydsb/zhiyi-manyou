@@ -23,7 +23,17 @@ const router = useRouter()
 const recordId = Number(route.params.recordId)
 const loading = ref(false)
 const ws = ref<Workspace | null>(null)
+/** 加载失败原因（用于展示错误态，避免页面空白无提示） */
+const loadError = ref('')
 const activeTab = ref<'tasks' | 'files' | 'messages' | 'timeline' | 'summary'>('tasks')
+
+/**
+ * 协作记录是否可读。
+ *
+ * 优先用后端的 collaborationReadable（已完成/已取消也为 true），
+ * 回退到 collaborationActive 以兼容旧响应。
+ */
+const readable = computed(() => ws.value?.collaborationReadable ?? ws.value?.collaborationActive ?? false)
 
 /* ---------------- 任务 ---------------- */
 const taskDialog = ref(false)
@@ -63,10 +73,20 @@ const doneTasks = computed(() => ws.value?.tasks.filter((t) => t.status === 'DON
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     ws.value = await workspaceApi.overview(recordId)
-  } catch {
-    // 非参与方访问会返回 3014，拦截器已提示
+  } catch (e) {
+    /*
+     * 必须留下失败痕迹。
+     *
+     * 原先这里只写了一句注释（"拦截器已提示"）就吞掉异常，ws 保持 null，
+     * 而模板里所有内容都挂在 v-if="ws" 下 —— 结果是整个 <main> 渲染为空，
+     * 页面全白，用户看到的是"点了没反应/卡住"。
+     * 这里记下原因，由模板的失败态展示出来。
+     */
+    ws.value = null
+    loadError.value = e instanceof Error ? e.message : '该交换记录无法访问'
   } finally {
     loading.value = false
   }
@@ -341,9 +361,13 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- 未进入协作阶段的引导 -->
+    <!--
+      协作还没开始（洽谈中/已发布）：确实没有内容可看，给引导。
+      注意判据用 collaborationReadable 而不是 collaborationActive ——
+      后者在交换完成后为 false，会让已完成交换的页面整个变白。
+    -->
     <el-alert
-      v-if="ws && !ws.collaborationActive"
+      v-if="ws && !readable"
       type="info"
       :closable="false"
       show-icon
@@ -351,7 +375,35 @@ onMounted(load)
       :description="`当前状态为「${ws.statusLabel}」，交换进入「进行中」后才能拆解任务、上传文件与留言。`"
     />
 
-    <template v-if="ws && ws.collaborationActive">
+    <!-- 交换已结束：内容只读保留，让用户能回看自己做过什么 -->
+    <el-alert
+      v-else-if="ws && !ws.collaborationActive"
+      type="success"
+      :closable="false"
+      show-icon
+      title="该交换已结束，以下为只读的协作记录"
+      :description="`当前状态为「${ws.statusLabel}」。任务、交付文件、留言与时间轴作为过程留痕永久保留，但不再允许修改。`"
+    />
+
+    <!--
+      加载失败态。
+      必须有这一块：此前 load() 的异常被 catch 吞掉、ws 保持 null，
+      于是上面所有 v-if="ws" 都不成立 —— <main> 里一个元素都没有，
+      页面完全空白且没有任何提示。用户点进来只会以为"卡住了"。
+    -->
+    <el-alert
+      v-if="!loading && !ws"
+      type="error"
+      :closable="false"
+      show-icon
+      title="无法打开该协作空间"
+      :description="loadError || '交换记录不存在，或你不是本次交换的参与方。'"
+    />
+    <div v-if="!loading && !ws" class="load-error-actions">
+      <el-button @click="router.push({ name: 'Exchanges' })">返回我的交换</el-button>
+    </div>
+
+    <template v-if="ws && readable">
       <!-- 关键指标速览 -->
       <el-row :gutter="12" class="stats">
         <el-col :span="6">
@@ -1258,5 +1310,8 @@ onMounted(load)
   width: 100%;
   font-size: 11.5px;
   color: var(--zy-text-regular);
+}
+.load-error-actions {
+  margin-top: 12px;
 }
 </style>

@@ -159,10 +159,36 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         vo.setActualHours(record.getActualHours() == null ? null : record.getActualHours().doubleValue());
 
         ExchangeStatus status = record.getStatus();
+        /*
+         * 写权限：只有协作进行中才能改。
+         *
+         * 洽谈中还不能拆解任务（双方尚未确认合作），交换结束后更不该再改动 ——
+         * 已完成交换的任务、留言与文件是**协作证据**，M6 互评与 M7 画像都引用它们，
+         * 允许事后修改会让证据失去意义。
+         */
         boolean active = status == ExchangeStatus.IN_PROGRESS
                 || status == ExchangeStatus.PENDING_EVAL
                 || status == ExchangeStatus.DISPUTED;
         vo.setCollaborationActive(active);
+
+        /*
+         * 读权限：范围比写权限大 —— 已完成/已取消的交换**只读可查**。
+         *
+         * 这里修的是一个真实缺陷：原先回显内容也挂在 active 上，
+         * 于是交换一进入「已完成」，双方就再也看不到自己做过什么 ——
+         * 任务清单、交付文件、沟通留言、协作时间轴全部消失，
+         * 而"学习记录与过程留痕"恰恰是本模块（FR-M5）最核心的价值。
+         * 列表页也因此不显示工作台入口，等于这批数据被凭空封存。
+         *
+         * 区分三种情形：
+         *   - NEGOTIATING / PUBLISHED / CANCELLED 前：协作还没开始，确实没有内容可看；
+         *   - 进行中三态：可读可写；
+         *   - 已完成（也含已取消）：**可读不可写**，作为历史记录保留。
+         */
+        boolean readable = active
+                || status == ExchangeStatus.COMPLETED
+                || status == ExchangeStatus.CANCELLED;
+        vo.setCollaborationReadable(readable);
 
         // 参与方与技能
         vo.setGiver(party(record.getGiverSno(), record.getGiveSkillId(), record.getLearnSkillId()));
@@ -176,12 +202,12 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         vo.setCanSendMessage(active && !"OBSERVER".equals(role));
         vo.setCanSubmitEval(status == ExchangeStatus.PENDING_EVAL);
 
-        // 内容（未进入协作阶段时返回空集合，前端展示引导态）
-        vo.setTasks(active ? buildTaskVOs(recordId, viewerSno) : List.of());
-        vo.setFiles(active ? buildLatestFileVOs(recordId) : List.of());
-        vo.setMessages(active ? buildMessageVOs(recordId, viewerSno, DEFAULT_MESSAGE_LIMIT) : List.of());
-        vo.setTimeline(active ? buildTimeline(recordId, viewerSno, 100) : List.of());
-        if (active) {
+        // 内容：只要交换开始过就回显（已完成/已取消为只读），未开始时返回空集合供前端展示引导态
+        vo.setTasks(readable ? buildTaskVOs(recordId, viewerSno) : List.of());
+        vo.setFiles(readable ? buildLatestFileVOs(recordId) : List.of());
+        vo.setMessages(readable ? buildMessageVOs(recordId, viewerSno, DEFAULT_MESSAGE_LIMIT) : List.of());
+        vo.setTimeline(readable ? buildTimeline(recordId, viewerSno, 100) : List.of());
+        if (readable) {
             vo.setProcessSummary(computeProcessSummary(record));
         }
         return vo;
