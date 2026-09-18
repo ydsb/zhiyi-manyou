@@ -111,8 +111,52 @@ function editSkills() {
   router.push({ name: 'Onboarding' })
 }
 
-function save() {
-  ElMessage.info('资料保存接口待开发（PUT /api/profile）')
+const saving = ref(false)
+
+/**
+ * 保存基本资料（FR-M1-05）。
+ *
+ * 提交前先做前端校验，是为了避免"点保存 → 服务端报错 → 用户不知道哪里填错"
+ * 的往返。真正的约束仍由服务端 `@Size` 保证（前端校验永远只是体验优化）。
+ */
+async function save() {
+  // 与服务端 @Size 上限对齐；前端先拦一道，省掉一次失败往返
+  const limits: Array<[string, string, number]> = [
+    ['nickname', '昵称', 64],
+    ['college', '学院', 64],
+    ['major', '专业', 64],
+    ['grade', '年级', 16],
+    ['intro', '简介', 500]
+  ]
+  for (const [key, label, max] of limits) {
+    const v = (form.value as Record<string, string>)[key] ?? ''
+    if (v.length > max) {
+      ElMessage.warning(`${label}不能超过 ${max} 字，当前 ${v.length} 字`)
+      return
+    }
+  }
+
+  saving.value = true
+  try {
+    await profileApi.updateProfile({
+      nickname: form.value.nickname,
+      college: form.value.college,
+      major: form.value.major,
+      grade: form.value.grade,
+      intro: form.value.intro
+    })
+    /*
+     * 保存后必须重新拉取用户信息。
+     * 顶栏的昵称、以及"对外展示名"都来自 auth store 里的 user，
+     * 不刷新的话页面顶部还显示旧昵称，用户会以为没保存成功。
+     */
+    await auth.fetchUser()
+    ElMessage.success('资料已保存')
+  } catch {
+    // 提示由响应拦截器统一处理
+  } finally {
+    saving.value = false
+  }
 }
 
 /**
@@ -173,7 +217,8 @@ function exportData() {
             </el-form-item>
           </el-form>
 
-          <el-button type="primary" @click="save">保存资料</el-button>
+          <el-button type="primary" :loading="saving" @click="save">保存资料</el-button>
+          <span class="save-hint">可修改昵称、学院、专业、年级与简介；学号与姓名由学校核验，不可自行更改</span>
         </div>
       </el-col>
 
@@ -503,5 +548,11 @@ function exportData() {
 
 .empty-action {
   margin-top: 12px;
+}
+
+.save-hint {
+  margin-left: 10px;
+  font-size: 11.5px;
+  color: var(--zy-text-placeholder);
 }
 </style>

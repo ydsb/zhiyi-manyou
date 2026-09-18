@@ -5,6 +5,7 @@ import com.nwu.zhiyi.api.dto.LoginRequest;
 import com.nwu.zhiyi.api.dto.LoginVO;
 import com.nwu.zhiyi.api.dto.RegisterRequest;
 import com.nwu.zhiyi.api.dto.UserInfoVO;
+import com.nwu.zhiyi.api.dto.profile.ProfileUpdateRequest;
 import com.nwu.zhiyi.common.api.ErrorCode;
 import com.nwu.zhiyi.common.enums.AuthStatus;
 import com.nwu.zhiyi.common.enums.CreditLevel;
@@ -158,6 +159,98 @@ public class AuthService {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
         return toUserInfo(student);
+    }
+
+    /**
+     * 修改个人资料（FR-M1-05）。
+     *
+     * <p><b>只允许改"自我介绍类"字段</b>：昵称、学院、专业、年级、头像、简介。
+     * 学号、姓名、角色、信用值、核验状态、账号状态一律不可经此接口改动 ——
+     * 前者是全平台业务关联的逻辑外键，后者是治理结果，都有专门的流程与审计链路
+     * （见 {@code ProfileUpdateRequest} 的字段说明）。这样收窄不是偷懒，
+     * 而是避免"编辑资料"变成绕过治理的后门。
+     *
+     * <p><b>三态语义（这是本方法最容易做错的地方）</b>：
+     * <table border="1">
+     *   <tr><th>入参</th><th>含义</th><th>落库</th></tr>
+     *   <tr><td>{@code null}</td><td>不修改</td><td>不写该列</td></tr>
+     *   <tr><td>{@code ""} 或纯空白</td><td>清空</td><td>写 {@code ""}</td></tr>
+     *   <tr><td>{@code "  值  "}</td><td>修改</td><td>写 trim 后的值</td></tr>
+     * </table>
+     *
+     * <p><b>为什么"清空"写空串而不是 NULL</b>：MyBatis-Plus 的 {@code updateById}
+     * 默认策略会<b>跳过值为 null 的字段</b>（{@code FieldStrategy.NOT_NULL}），
+     * 因此 null 只能表达"不修改"。若把"清空"也实现成写 null，实际效果是
+     * "什么都没改" —— 用户点保存后没有任何变化，却收不到任何错误提示。
+     * 本项目首次实现就踩了这个坑（由 ProfileUpdateSemanticsTest 抓出）。
+     *
+     * <p>写空串不影响展示：{@code Student.displayName()} 用
+     * {@code nickname.isEmpty()} 判空并回退到实名，前端各处也都是
+     * {@code value || '—'} 的写法，空串与 NULL 表现一致。
+     *
+     * @param sno     学号（取自登录态）
+     * @param request 修改请求
+     * @return 修改后的用户信息
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public UserInfoVO updateProfile(String sno, ProfileUpdateRequest request) {
+        Student student = studentMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Student>()
+                        .eq(Student::getSno, sno));
+        if (student == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        Student patch = new Student().setId(student.getId());
+        int changed = 0;
+        if (request.getNickname() != null) {
+            patch.setNickname(normalize(request.getNickname()));
+            changed++;
+        }
+        if (request.getCollege() != null) {
+            patch.setCollege(normalize(request.getCollege()));
+            changed++;
+        }
+        if (request.getMajor() != null) {
+            patch.setMajor(normalize(request.getMajor()));
+            changed++;
+        }
+        if (request.getGrade() != null) {
+            patch.setGrade(normalize(request.getGrade()));
+            changed++;
+        }
+        if (request.getAvatar() != null) {
+            patch.setAvatar(normalize(request.getAvatar()));
+            changed++;
+        }
+        if (request.getIntro() != null) {
+            patch.setIntro(normalize(request.getIntro()));
+            changed++;
+        }
+
+        if (changed == 0) {
+            // 没有任何字段被提交：不写库、也不报错，直接回显当前资料。
+            // 报错会让"只点了一下保存"变成一个令人困惑的失败。
+            log.debug("[资料修改] {} 提交了空请求，未做任何修改", sno);
+            return toUserInfo(student);
+        }
+
+        studentMapper.updateById(patch);
+        log.info("[资料修改] {} 更新了 {} 个字段", sno, changed);
+        return toUserInfo(studentMapper.selectById(student.getId()));
+    }
+
+    /**
+     * 归一化文本输入：裁剪首尾空白；纯空白返回空串（表示"清空"）。
+     *
+     * <p>返回空串而非 null 是刻意的 —— null 在更新语义里代表"不修改"，
+     * 详见 {@link #updateProfile} 的三态说明。
+     *
+     * @param raw 原始输入，调用方保证非 null
+     * @return 裁剪后的值；纯空白时为空串
+     */
+    private static String normalize(String raw) {
+        return raw.trim();
     }
 
     /**

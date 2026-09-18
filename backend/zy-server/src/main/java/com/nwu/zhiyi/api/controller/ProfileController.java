@@ -1,18 +1,22 @@
 package com.nwu.zhiyi.api.controller;
 
+import com.nwu.zhiyi.api.dto.UserInfoVO;
 import com.nwu.zhiyi.api.dto.profile.AbilityReportVO;
 import com.nwu.zhiyi.api.dto.profile.BadgeVO;
 import com.nwu.zhiyi.api.dto.profile.GrowthTrendVO;
+import com.nwu.zhiyi.api.dto.profile.ProfileUpdateRequest;
 import com.nwu.zhiyi.api.dto.profile.RadarChartVO;
 import com.nwu.zhiyi.api.dto.profile.SkillProfileSaveRequest;
 import com.nwu.zhiyi.api.dto.profile.SkillProfileVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.security.SecurityUtils;
+import com.nwu.zhiyi.service.AuthService;
 import com.nwu.zhiyi.service.profile.ProfileService;
 import com.nwu.zhiyi.service.profile.SkillProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,6 +32,10 @@ import java.util.Map;
  * <p>全部返回"我的"数据，因此学号一律取自登录态，不接受前端传入 ——
  * 避免越权查看他人画像。
  *
+ * <p>{@code PUT /api/profile} 落在本控制器是因为它同属"我的资料"这一族；
+ * 实现委托给 {@link AuthService}（资料本体归 M1 认证模块维护），
+ * 避免把 Student 的写逻辑散到两处。
+ *
  * @author 李泽宬
  */
 @RestController
@@ -37,6 +45,24 @@ public class ProfileController {
 
     private final ProfileService profileService;
     private final SkillProfileService skillProfileService;
+    private final AuthService authService;
+
+    /**
+     * 修改个人资料（FR-M1-05）。
+     *
+     * <p>可改：昵称、学院、专业、年级、头像、简介。
+     * 学号、姓名、角色、信用值、核验状态不可经此接口改动 —— 见
+     * {@code ProfileUpdateRequest} 的字段说明。
+     *
+     * <p>字段为 null 表示不修改；传空串表示清空。
+     *
+     * <pre>PUT /api/profile</pre>
+     */
+    @PutMapping
+    public ApiResponse<UserInfoVO> updateProfile(@Valid @RequestBody ProfileUpdateRequest request) {
+        return ApiResponse.success("资料已保存",
+                authService.updateProfile(SecurityUtils.currentSno(), request));
+    }
 
     /**
      * 我的技能画像（FR-M1-03 / FR-M2-02）。

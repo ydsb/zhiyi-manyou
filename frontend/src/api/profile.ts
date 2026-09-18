@@ -6,6 +6,7 @@ import type {
   RadarChart,
   SkillProfile,
   SkillProfileSaveItem,
+  UserInfo,
   WeeklyReport
 } from './types'
 
@@ -15,6 +16,27 @@ import type {
  * 全部返回"我的"数据，学号由服务端从登录态取，前端不传 —— 避免越权。
  */
 export const profileApi = {
+  /**
+   * 修改个人资料（FR-M1-05）。
+   *
+   * 只能改"自我介绍类"字段：昵称、学院、专业、年级、头像、简介。
+   * 学号、姓名、角色、信用值、核验状态由服务端保护，传了也不会生效。
+   *
+   * 字段语义：**不传（undefined）表示不修改，传空串表示清空**。
+   * 切忌把未填写的字段补成 null —— 后端把 null 视为"不修改"，
+   * 而 MyBatis-Plus 也会跳过 null 字段，两者叠加会让"清空"静默失效。
+   */
+  updateProfile(data: {
+    nickname?: string
+    college?: string
+    major?: string
+    grade?: string
+    avatar?: string
+    intro?: string
+  }) {
+    return request<UserInfo>({ url: '/profile', method: 'put', data })
+  },
+
   /** 能力雷达图（FR-M7-01/02）。实时计算，完成交换后立即刷新。 */
   radar() {
     return request<RadarChart>({ url: '/profile/radar', method: 'get' })
