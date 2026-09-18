@@ -83,5 +83,38 @@ export default defineConfig({
         }
       }
     }
+  },
+
+  /*
+   * preview 必须单独声明代理。
+   *
+   * Vite 的 `server.proxy` **不作用于** `preview` 服务 —— preview 只读
+   * `preview.proxy`。缺了这一段，用 `npm run preview` 打开页面会看到
+   * "接口全 404"，很容易被误判成后端挂了。
+   *
+   * 为什么建议局域网演示改用 preview 而不是 dev：
+   * `npm run dev` 会把**未压缩**的依赖整包发给浏览器（实测 element-plus
+   * 8.4 MB + echarts 11 MB）。首次进入任一页面都要等这几 MB 传输与解析，
+   * 表现就是"点了导航卡在上一页好几秒"，而且换成哪条路由都一样 ——
+   * 因为它与路由无关，是开发服务器按需编译的固有代价。
+   * 生产构建产物 gzip 后为 element 315 KB + charts 371 KB，整体约小 26 倍，
+   * 首次进入基本无感。
+   *
+   * 注意：改动前端代码后需要重新 `npm run build`，preview 不会热更新。
+   */
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    strictPort: false,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      },
+      '/actuator': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      }
+    }
   }
 })
