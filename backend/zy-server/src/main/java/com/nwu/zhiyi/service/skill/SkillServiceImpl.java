@@ -92,6 +92,22 @@ public class SkillServiceImpl implements SkillService {
      */
     private static final double SEMANTIC_MIN_SCORE = 0.30;
 
+    /**
+     * 何时值得做"图谱关系扩展"的第二遍检索。
+     *
+     * <p>第一遍 top1 低于该值时，说明字面重叠不足、绝对分被压低，
+     * 此时用候选当种子接图谱关系往往能把正确答案提上来（实测 0.095 → 0.366）。
+     * 若第一遍已经很自信（≥ 该值），再做一遍只是白花一次调用。
+     */
+    private static final double RELATION_EXPAND_BELOW = 0.30;
+
+    /**
+     * 图谱扩展时取前几个候选当种子。
+     *
+     * <p>候选带噪声，种子越多错误加成越可能把无关标签顶上来。保守取 3。
+     */
+    private static final int RELATION_SEED_LIMIT = 3;
+
     /* ==================== 查询 ==================== */
 
     @Override
@@ -285,6 +301,49 @@ public class SkillServiceImpl implements SkillService {
         }
         if (!search.available() || search.hits().isEmpty()) {
             return;
+        }
+
+        /*
+         * 第二遍：借"第一遍的候选"接上图谱关系，解决字面鸿沟。
+         *
+         * <p><b>为什么需要两遍</b>：关系加成必须传 seedSkillIds，而解析时用户还没选任何标签，
+         * 于是本体里那些为"语义鸿沟"精心建的边全都用不上。最典型的一条是
+         * {@code JS 动画与交互实现 —SYNONYM→ UI/UX 设计}，其备注原文就是
+         * "解决'动态交互效果'与'JS 动画库'的语义鸿沟"。
+         *
+         * <p>实测"我需要会做动态交互效果的同学，帮我把作品集页面做得活一点"：
+         * <ul>
+         *   <li>不传 seed：目标标签 0.0946，被 0.30 阈值切掉；</li>
+         *   <li>以第一遍 top 候选为 seed：**0.3662**，正常入选。</li>
+         * </ul>
+         * 也就是说模型其实认得出，只是字面重叠太少导致绝对分低；
+         * 而"该标签与用户已提及的领域存在图谱关系"是一个独立且有力的证据。
+         *
+         * <p>种子只取前几个高分候选：候选有噪声时，种子越多，错误加成越可能把
+         * 无关标签顶上来。当前本体只有 3 条边，爆炸半径很小，但仍按保守取 3 个。
+         */
+        if (search.hits().size() > 0 && search.hits().get(0).score() < RELATION_EXPAND_BELOW) {
+            List<Integer> seeds = search.hits().stream()
+                    .limit(RELATION_SEED_LIMIT)
+                    .map(SemanticMatchClient.Hit::skillId)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (!seeds.isEmpty()) {
+                try {
+                    SemanticMatchClient.SearchResult expanded =
+                            semanticClient.search(text, Math.min(50, need * 2), "SKILL", seeds);
+                    // 只在确实带来更高分时才采用，避免"图谱加成反而降低召回"
+                    if (expanded.available() && !expanded.hits().isEmpty()
+                            && expanded.hits().get(0).score() > search.hits().get(0).score()) {
+                        log.debug("[技能解析] 图谱关系扩展生效：{} -> {}（seeds={}）",
+                                search.hits().get(0).score(), expanded.hits().get(0).score(), seeds);
+                        search = expanded;
+                    }
+                } catch (Exception ex) {
+                    log.warn("[技能解析] 图谱关系扩展失败，沿用原结果：{}", ex.getMessage());
+                }
+            }
         }
 
         Set<Long> existing = result.getMatched().stream()
