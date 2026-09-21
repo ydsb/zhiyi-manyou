@@ -54,6 +54,13 @@ class IndexItem:
     meta: dict = field(default_factory=dict)
 
 
+#: 片段检索捞候选时的最低分（"片段 ↔ 文档"的相似度）。
+#:
+#: 这个值只决定"够不够格当候选"，不决定最终排序（入选文档会按整句重新打分）。
+#: 取 0.20：低于它的片段命中信息量太小，放进来只会增加复评开销而不带来召回。
+SEGMENT_CANDIDATE_MIN_SCORE = 0.20
+
+
 @dataclass
 class SearchHit:
     """一条检索结果。"""
@@ -213,7 +220,8 @@ class VectorIndex:
     def search(self, query: str | np.ndarray, top_k: int = 10,
                kind: str | None = None, min_score: float = 0.0,
                explain: bool = True, use_relations: bool = True,
-               seed_skill_ids: list[int] | None = None) -> list[SearchHit]:
+               seed_skill_ids: list[int] | None = None,
+               segment_search: bool = True) -> list[SearchHit]:
         """检索最相似的记录。
 
         @param query          查询文本或已编码向量
@@ -225,10 +233,126 @@ class VectorIndex:
         @param seed_skill_ids 查询已关联的技能 id（如需求卡片已选技能标签）。
                               命中这些技能在图谱上的邻居时给予加成 ——
                               这是"标签 + 图谱"的结合点。
+        @param segment_search 是否对长句按语义片段分别检索后取各文档最高分。
+                              见下方"长句分数稀释"的说明。
         @return               按最终得分降序的结果
         """
         if self._dirty:
             self.build()
+        if self._matrix is None or self._matrix.shape[0] == 0:
+            return []
+
+        # ------------------------------------------------------------------
+        # 长句按语义片段"捞候选"，但**仍按整句相似度排序**
+        #
+        # 实测同一语义的分数随句子变长单调下降：
+        #     动态交互                              -> 0.340
+        #     动态交互 作品集                        -> 0.239
+        #     动态交互效果 作品集页面                -> 0.190
+        #     需要会做动态交互效果的同学，帮我把作品集页面做得活一点 -> 0.095
+        #
+        # 排序始终正确（都指向 JS 动画与交互实现），但分数被对话填充词稀释：
+        # "我需要…的同学""帮我把…做得活一点"这类词在技能短文本里罕见、IDF 高，
+        # 于是平摊走了向量权重，正确标签被分数阈值切掉 ——
+        # 表现为"用户正常说一句话却解析不出结果"。
+        #
+        # 【为什么不能直接用片段分数排序】
+        # 片段分数是"片段 ↔ 文档"的相似度，与"整句 ↔ 文档"不可比：
+        # 实测该查询的片段"图表"会让「数学建模」拿到 1.0 而压过正确答案，
+        # 还会把置信度虚报成 100%。
+        # 因此片段**只用于扩大候选集**，入选文档一律重新按整句打分、按整句排序 ——
+        # 这样"哪条更相关"仍由整句决定，片段只负责把被稀释掉的正确标签捞回来。
+        # ------------------------------------------------------------------
+        candidate_pos: set[int] = set()
+        if segment_search and isinstance(query, str):
+            from .tokenizer import split_semantic_segments  # 局部导入避免循环引用
+            segments = split_semantic_segments(query)
+            # 只有切成多段才划算；单段说明本来就是短查询，直接走原路径
+            if len(segments) > 1:
+                for seg in segments:
+                    for hit in self._search_once(
+                        seg, top_k, kind, 0.0, explain, use_relations, seed_skill_ids
+                    ):
+                        pos = self._by_key.get(hit.key)
+                        if pos is not None and hit.score >= SEGMENT_CANDIDATE_MIN_SCORE:
+                            candidate_pos.add(pos)
+
+        results = self._search_once(
+            query, top_k, kind, min_score, explain, use_relations, seed_skill_ids
+        )
+        if not candidate_pos:
+            return results
+
+        # 把片段捞回的候选并入，并统一按"整句相似度"重新打分
+        best: dict[int, SearchHit] = {}
+        for hit in results:
+            pos = self._by_key.get(hit.key)
+            if pos is not None:
+                best[pos] = hit
+
+        new_positions = [p for p in candidate_pos if p not in best]
+        if new_positions:
+            q = self.embedder.encode(query)
+            q = _l2(q)
+            extra = self._score_positions(new_positions, q, kind, explain, query,
+                                          use_relations, seed_skill_ids)
+            for hit in extra:
+                pos = self._by_key.get(hit.key)
+                if pos is not None:
+                    best[pos] = hit
+
+        out = [h for h in best.values() if h.score >= min_score]
+        out.sort(key=lambda h: -h.score)
+        return out[:top_k]
+
+    def _score_positions(self, positions: list[int], q: np.ndarray, kind: str | None,
+                         explain: bool, qtext: str, use_relations: bool,
+                         seed_skill_ids: list[int] | None) -> list[SearchHit]:
+        """对指定文档按给定查询向量打分（供片段候选复评使用）。"""
+        if self._matrix is None or not positions:
+            return []
+        idx_arr = np.asarray(sorted(set(positions)), dtype=np.int64)
+        sem = self._matrix[idx_arr] @ q
+        if kind:
+            mask = np.array([self._items[i].kind == kind for i in idx_arr])
+            idx_arr, sem = idx_arr[mask], sem[mask]
+        if idx_arr.size == 0:
+            return []
+
+        boost = np.zeros(idx_arr.shape[0], dtype=np.float32)
+        boost_note: dict[int, str] = {}
+        if use_relations and seed_skill_ids and self._relations:
+            for pos, i in enumerate(idx_arr):
+                item = self._items[int(i)]
+                item_id = self._skill_id_of(item)
+                if item_id is None:
+                    continue
+                for other, rel, w in self._relations.get(item_id, []):
+                    if other in seed_skill_ids and w > boost[pos]:
+                        boost[pos] = w
+                        boost_note[int(i)] = (
+                            f"与查询所选技能在图谱上是「{rel_label(rel)}」关系，提权 {w:.0%}")
+
+        final = sem + boost * (1.0 - sem)
+        hits: list[SearchHit] = []
+        for pos, i in enumerate(idx_arr):
+            item = self._items[int(i)]
+            reasons = self._explain(qtext, item) if (explain and qtext) else []
+            if int(i) in boost_note:
+                reasons.insert(0, boost_note[int(i)])
+            hits.append(SearchHit(
+                key=item.key, kind=item.kind, text=item.text,
+                score=round(float(np.clip(final[pos], 0.0, 1.0)), 4), meta=item.meta,
+                reasons=reasons,
+                semantic_score=round(float(np.clip(sem[pos], 0.0, 1.0)), 4),
+                relation_boost=round(float(boost[pos]), 4)))
+        return hits
+
+    def _search_once(self, query: str | np.ndarray, top_k: int,
+                     kind: str | None, min_score: float,
+                     explain: bool, use_relations: bool,
+                     seed_skill_ids: list[int] | None) -> list[SearchHit]:
+        """单次检索（不做片段切分），供 {@link search} 复用。"""
         if self._matrix is None or self._matrix.shape[0] == 0:
             return []
 

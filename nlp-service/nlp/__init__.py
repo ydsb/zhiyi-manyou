@@ -32,6 +32,7 @@ from .tokenizer import (
     overlapping_terms,
     normalize,
     split_segments,
+    split_semantic_segments,
 )
 from .tfidf import TfidfVectorizer, SparseVector, build_vocabulary_stats
 from .embedder import SemanticEmbedder, cosine, randomized_svd, DEFAULT_DIM
@@ -44,6 +45,7 @@ __all__ = [
     "overlapping_terms",
     "normalize",
     "split_segments",
+    "split_semantic_segments",
     "TfidfVectorizer",
     "SparseVector",
     "build_vocabulary_stats",

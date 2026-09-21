@@ -185,6 +185,80 @@ def keyword_tokens(text: str) -> list[str]:
     return uniq
 
 
+def split_semantic_segments(text: str, min_len: int = 2, max_segments: int = 6) -> list[str]:
+    """把长句切成"语义片段"。
+
+    【为什么需要它】
+      实测同一语义的召回分数随句子变长而**单调下降**：
+
+          动态交互                      -> 0.340
+          动态交互 作品集                -> 0.239
+          动态交互效果 作品集页面        -> 0.190
+          需要会做动态交互效果的同学，帮我把作品集页面做得活一点 -> 0.095
+
+      排序始终是对的（都指向 JS 动画与交互实现），但分数被对话填充词稀释：
+      "我需要…的同学""帮我把…做得活一点" 这类词在技能短文本里罕见，
+      IDF 反而高，于是平摊走了向量权重，把真正有信息量的词压到很低。
+      结果就是正确标签被分数阈值一刀切掉 —— 表现为"用户正常说一句话却解析不出结果"。
+
+      这不是阈值问题：降阈值会把噪声一起放进来（见 embedder.has_known_terms 的说明）。
+      正确做法是**让长句按片段检索**，让"动态交互效果"这一段的分数不被填充词拖累。
+
+    【切分规则】
+      以标点与停用词为边界，取最长匹配的停用词（停用词表里既有单字"的/会/把"，
+      也有多字"需要/帮我"，只按单字切会把手艺词也切碎）。
+
+    @param text         原始文本
+    @param min_len      片段最小长度（含），过短的片段信息量不足
+    @param max_segments 最多返回几段
+    @return             语义片段列表；无有效片段时返回空列表
+    """
+    if not text:
+        return []
+    norm = normalize(text)
+    # 先按标点切成粗段
+    rough = [p for p in RE_PUNCT.split(norm) if p]
+    # 停用词按长度降序，保证"需要"优先于"要"被匹配
+    stops = sorted(STOPWORDS_ZH, key=len, reverse=True)
+
+    segments: list[str] = []
+    for chunk in rough:
+        buf: list[str] = []
+        i = 0
+        while i < len(chunk):
+            hit = None
+            for s in stops:
+                if chunk.startswith(s, i):
+                    hit = s
+                    break
+            if hit:
+                if buf:
+                    segments.append("".join(buf))
+                    buf = []
+                i += len(hit)
+            else:
+                buf.append(chunk[i])
+                i += 1
+        if buf:
+            segments.append("".join(buf))
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for seg in segments:
+        seg = seg.strip()
+        # 至少含 min_len 个 CJK 字符或一个英文词，才算有信息量
+        cjk = len(RE_CJK.findall(seg))
+        if cjk < min_len and not RE_WORD.search(seg):
+            continue
+        if seg in seen:
+            continue
+        seen.add(seg)
+        out.append(seg)
+        if len(out) >= max_segments:
+            break
+    return out
+
+
 def overlapping_terms(a: str, b: str, top: int = 8) -> list[str]:
     """找出两段文本共有的显著 token，用于解释"为什么判定相似"。
 
