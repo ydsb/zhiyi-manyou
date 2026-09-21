@@ -12,6 +12,7 @@ import com.nwu.zhiyi.domain.entity.Skill;
 import com.nwu.zhiyi.domain.entity.SkillOntology;
 import com.nwu.zhiyi.domain.mapper.SkillMapper;
 import com.nwu.zhiyi.domain.mapper.SkillOntologyMapper;
+import com.nwu.zhiyi.service.match.SemanticMatchClient;
 import com.nwu.zhiyi.service.skill.graph.SkillGraphService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,9 +52,29 @@ public class SkillServiceImpl implements SkillService {
     private final SkillOntologyMapper ontologyMapper;
     private final SkillTextParser parser;
     private final SkillGraphService graphService;
+    private final SemanticMatchClient semanticClient;
 
     /** 解析命中一次累加的热度分 */
     private static final int HOT_DELTA_PER_HIT = 3;
+
+    /**
+     * 规则命中少于该数量时启用语义兜底。
+     *
+     * <p>取 2 而不是 1：只有 1 条规则命中通常意味着用户输入里的其他技能词
+     * 都没被词典覆盖，正需要语义补充；而 2 条以上说明词典已经工作得不错，
+     * 此时引入向量结果反而会稀释精度。
+     */
+    private static final int SEMANTIC_FALLBACK_THRESHOLD = 2;
+
+    /**
+     * 语义结果的最低分阈值。
+     *
+     * <p>余弦相似度天然偏低（精确命中才会接近 1），因此这个值不能设高。
+     * 0.15 是实测得出的：有效召回在 0.37~0.90（"求带机器学习" 0.897、
+     * "急需界面设计" 0.725、"我会剪视频想学做PPT" 0.366），
+     * 而无关噪声通常低于 0.05。
+     */
+    private static final double SEMANTIC_MIN_SCORE = 0.15;
 
     /* ==================== 查询 ==================== */
 
@@ -183,6 +204,28 @@ public class SkillServiceImpl implements SkillService {
         int max = Math.max(1, Math.min(limit, 50));
         ParseResultVO result = parser.parse(text, snapshot(), max, withGraph);
 
+        /*
+         * 语义兜底（S3 · FR-M3-02 / NFR-R-03）。
+         *
+         * <p><b>为什么必须有这一步</b>：规则解析器只认字面命中 —— 技能名、别名、
+         * 关键词出现才匹配。实测这句话"急需一位会界面设计的同学"在 788 个标签上
+         * 零命中，而语义通道能给到 0.725「Figma 界面设计」、0.572「UI/UX 设计」。
+         * 更糟的是图谱补全也要求"已有匹配"才触发，于是零命中时整条流水线
+         * 没有任何兜底，用户看到的就是"这个功能用不了"。
+         *
+         * <p><b>什么时候兜底</b>：只在规则命中不足（少于 2 条）时补充。
+         * 规则命中已经可靠时引入向量结果反而会稀释精度 —— 用户输入里明确提到的
+         * 技能标签，不应该被"语义上有点像"的标签挤掉。
+         *
+         * <p><b>意图如何处置</b>：语义命中不猜意图。规则解析器能从"我会/我急需/我想学"
+         * 这类线索判定 intent，而向量相似度只说明"意思相近"，无法判断用户是
+         * 想教还是想学。硬塞一个 intent 会让它出现在错误的分组里，
+         * 因此这里明确留空，由前端按所在步骤归属。
+         */
+        if (result.getMatched().size() < SEMANTIC_FALLBACK_THRESHOLD) {
+            augmentWithSemantic(result, text, max);
+        }
+
         // 图谱补全（FR-M2-06）：挖掘字面匹配之外的隐性互补需求
         if (withGraph && !result.getMatched().isEmpty() && result.getMatched().size() < max) {
             graphService.augment(result, max);
@@ -198,6 +241,122 @@ public class SkillServiceImpl implements SkillService {
         log.debug("[技能解析] engine={} matched={} triples={}",
                 result.getEngine(), result.getMatched().size(), result.getTriples().size());
         return result;
+    }
+
+    /**
+     * 用语义检索补充规则未命中的标签。
+     *
+     * <p>只做"追加"不做"重排"：规则命中的结果保持原有顺序与依据，
+     * 语义结果按分数插入其后，且不覆盖已有标签。
+     *
+     * @param result 规则解析结果（就地修改）
+     * @param text   用户输入原文
+     * @param max    结果上限
+     */
+    private void augmentWithSemantic(ParseResultVO result, String text, int max) {
+        int need = max - result.getMatched().size();
+        if (need <= 0) {
+            return;
+        }
+        SemanticMatchClient.SearchResult search;
+        try {
+            // topK 取 need 的 2 倍：其中一部分会与规则命中重复，需要留出余量
+            search = semanticClient.search(text, Math.min(50, need * 2), "SKILL", null);
+        } catch (Exception ex) {
+            // 语义通道异常绝不能影响解析本身：规则结果已经可用
+            log.warn("[技能解析] 语义兜底失败，保留规则结果：{}", ex.getMessage());
+            return;
+        }
+        if (!search.available() || search.hits().isEmpty()) {
+            return;
+        }
+
+        Set<Long> existing = result.getMatched().stream()
+                .map(SkillMatchVO::getSkillId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // 批量取标签，避免逐条查询（Hit.skillId() 是 Integer，统一转 Long）
+        List<Long> ids = search.hits().stream()
+                .map(SemanticMatchClient.Hit::skillId)
+                .filter(java.util.Objects::nonNull)
+                .map(Integer::longValue)
+                .filter(id -> !existing.contains(id))
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return;
+        }
+        Map<Long, Skill> skills = skillMapper.selectBriefByIds(ids).stream()
+                .collect(Collectors.toMap(Skill::getId, s -> s, (a, b) -> a, LinkedHashMap::new));
+
+        int added = 0;
+        // 记录被阈值挡掉的最高分：用于区分"完全没信号"与"有点接近但不够"，给出不同提示
+        double bestRejected = 0;
+        for (SemanticMatchClient.Hit hit : search.hits()) {
+            if (added >= need) {
+                break;
+            }
+            Integer rawId = hit.skillId();
+            if (rawId == null) {
+                continue;
+            }
+            Long id = rawId.longValue();
+            Skill skill = skills.get(id);
+            if (skill == null || existing.contains(id)) {
+                continue;
+            }
+            /*
+             * 阈值过滤：余弦相似度天然偏低，不设下限会把明显无关的标签也带进来。
+             * 0.15 是实测出来的下限 —— "求带机器学习"命中 0.897、
+             * "急需界面设计"命中 0.725，而噪声通常在 0.05 以下。
+             *
+             * 注意不要为了"让某个样例能解析出来"而压低这个值：
+             * 阈值调低会把噪声带进**所有**输入，是典型的过拟合单个测试用例。
+             * 灰色区间（有信号但不够强）的正确处置是给用户可操作的提示，
+             * 见下方 hint 的分级文案。
+             */
+            double score = hit.score();
+            if (score < SEMANTIC_MIN_SCORE) {
+                bestRejected = Math.max(bestRejected, score);
+                continue;
+            }
+            String reason = hit.relationBoost() > 0
+                    ? "语义相近（" + Math.round(score * 100) + "%），并命中已有标签的图谱邻居"
+                    : "语义相近（" + Math.round(score * 100) + "%）：字面未命中，但表达的意思与「"
+                    + skill.getName() + "」最接近";
+            result.getMatched().add(SkillMatchVO.of(
+                    SkillVO.of(skill), null, score, SkillMatchVO.MatchType.SEMANTIC, reason));
+            existing.add(id);
+            added++;
+        }
+
+        if (added == 0) {
+            /*
+             * 一条都没补上时，hint 必须能区分两种情况 —— 否则用户看到的是
+             * 一模一样的"未匹配到"，却不知道自己是"说得太笼统"还是"平台确实没有这个标签"。
+             */
+            if (bestRejected > 0) {
+                result.setHint("你的描述与平台标签只有 " + Math.round(bestRejected * 100)
+                        + "% 接近，还不够明确。试着直接写出技能名称或常见叫法"
+                        + "（例如把「做动态交互效果」写成「JS 动画」），也可以在下方手工挑选标签。");
+            } else {
+                result.setHint("没有找到与这段描述相近的技能标签。可以换成更具体的技能名称，"
+                        + "或在下方按学科门类手工挑选。");
+            }
+            return;
+        }
+
+        if (added > 0) {
+            /*
+             * 如实标注引擎：结果里含向量召回，就不该再自称 RULE_LEXICON。
+             * 前端与验收方据此判断"这次解析用到了语义能力"。
+             */
+            result.setEngine(result.getEngine() + "+SEMANTIC");
+            result.setDegraded(false);
+            log.debug("[技能解析] 语义兜底补充 {} 个标签（通道={}，耗时 {}ms）",
+                    added, search.channel(), search.tookMs());
+        }
     }
 
     /* ==================== 管理端写操作 ==================== */

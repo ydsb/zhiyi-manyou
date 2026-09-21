@@ -815,7 +815,14 @@ export interface Skill {
 }
 
 /** 匹配方式 */
-export type SkillMatchType = 'EXACT' | 'ALIAS' | 'KEYWORD' | 'GRAPH'
+/**
+ * 匹配方式。
+ *
+ * `SEMANTIC` 是 S3 向量召回的结果：字面未命中但语义相近
+ * （如"求带机器学习" → "机器学习建模"）。单独成一类是因为
+ * 可解释性要求界面说清"为什么推荐它"，而它与关键词命中的可信度不同。
+ */
+export type SkillMatchType = 'EXACT' | 'ALIAS' | 'KEYWORD' | 'SEMANTIC' | 'GRAPH'
 
 /** 技能匹配项（带可解释依据） */
 export interface SkillMatch {

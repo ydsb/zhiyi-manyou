@@ -5,7 +5,6 @@ import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { skillApi } from '@/api/skill'
 import { profileApi } from '@/api/profile'
-import { matchApi } from '@/api/match'
 import type { Skill, SkillIntent, SkillTree } from '@/api/types'
 
 /**
@@ -186,18 +185,14 @@ const lastExtract = ref<{ engine: string; fromRule: number; fromVector: number }
 /**
  * 一句话抽取标签。
  *
- * <p><b>为什么要同时用两个通道</b>：M1 阶段本页只调 {@code /skills/parse}
- * （规则词典），实测一句"我会做数学建模和统计分析，也常常用 Python 处理数据"
- * <b>只抽到 1 个标签</b> —— 因为规则词典只认字面命中的词，
- * "统计分析""处理数据"在词典里没有对应词条就全丢了。
- * 而平台 S3 阶段已经建好了 788 标签的向量索引，能召回"字面不同但语义相近"的技能。
+ * <p><b>为什么现在只调一个接口</b>：M1 阶段本页只调 {@code /skills/parse}（规则词典），
+ * 实测一句"我会做数学建模和统计分析，也常常用 Python 处理数据"只抽到 1 个标签 ——
+ * 词典只认字面命中的词。当时前端补调 {@code /match/semantic} 并在本地合并。
  *
- * <p>两者互补而不是替代：
- * <ul>
- *   <li>{@code parse} 给标准化标签名 + 三元组，<b>还能判定意图</b>；</li>
- *   <li>{@code semantic} 给向量召回 + 图谱关系加成，<b>但不管意图</b>。</li>
- * </ul>
- * 因此以 parse 的意图判定为准，用 semantic 补召回，按 skillId 去重。
+ * <p>但那个权宜之计有两个问题：多一次网络往返；两处各自维护阈值与过滤规则，
+ * 容易不一致。现在后端 {@code parse} 已内置语义兜底（命中不足时自动补召回，
+ * 并标注 {@code matchType=SEMANTIC}），合并逻辑收敛到后端一处，
+ * 前端只保留"每门类最多 2 个"这条**展示层**约束。
  */
 async function parseAndAdd() {
   const text = nlText.value.trim()
@@ -208,24 +203,26 @@ async function parseAndAdd() {
   parsing.value = true
   try {
     /*
-     * 已选标签作为图谱种子：用户已勾的标签是最强意图信号，
-     * 命中它们在图谱上的邻居（同义/先决/互补）会获得关系加成（FR-M2-06）。
+     * 只调一个接口。
+     *
+     * 原先这里并行调 `/skills/parse`（规则词典）与 `/match/semantic`（向量），
+     * 在前端做合并 —— 那是当时后端 parse 只认字面命中、零命中时无任何兜底的权宜之计。
+     * 现在后端 parse 已内置语义兜底（命中不足阈值时自动补召回，并标注 matchType=SEMANTIC），
+     * 前端再调一遍就是重复劳动：多一次往返、两处阈值要各自维护、还可能出现
+     * "前端过滤掉的结果与后端已经过滤的不一致"。合并逻辑收敛到后端一处。
      */
-    const seeds = picked.value.flat().map((s) => s.id)
-
-    const [parsed, semantic] = await Promise.all([
-      skillApi.parse({ text, limit: 8, withGraph: true }).catch(() => null),
-      matchApi
-        .semantic({ query: text, topK: 10, kind: 'SKILL', seedSkillIds: seeds })
-        .catch(() => null)
-    ])
-
+    const parsed = await skillApi.parse({ text, limit: 10, withGraph: true }).catch(() => null)
     const want = currentStep.value.intent
+
     const candidates: Array<{ skill: Skill; why: string }> = []
     const seen = new Set<number>()
 
-    // 通道一：规则词典 + 三元组（带意图）
+    // 第一轮：规则词典与图谱命中的（带意图、可信度高），全部收下
     for (const m of parsed?.matched ?? []) {
+      if (m.matchType === 'SEMANTIC') {
+        continue
+      }
+      // 意图明确且与本步不符的跳过：避免用户在"我急需"这一步写"我会做视频剪辑"被塞进需求
       if (m.intent && m.intent !== want) {
         continue
       }
@@ -234,71 +231,63 @@ async function parseAndAdd() {
       }
       seen.add(m.skillId)
       candidates.push({
-        skill: { id: m.skillId, name: m.name, categoryL1: m.categoryL1 ?? '', categoryL2: m.categoryL2 ?? '' },
-        why: `${m.reason}（${Math.round(Number(m.score) * 100)}%）`
+        skill: {
+          id: m.skillId,
+          name: m.name,
+          categoryL1: m.categoryL1 ?? '',
+          categoryL2: m.categoryL2 ?? ''
+        },
+        why: m.reason
       })
     }
     const fromRule = candidates.length
 
-    // 通道二：向量召回（补字面未命中的语义近邻）
     /*
-     * 这里做两道约束，避免向量召回"吃掉"全部名额。
+     * 第二轮：语义召回（matchType=SEMANTIC）。
      *
-     * 实测："我会做数学建模和统计分析，也常常用 Python 处理数据" 的 Top-10 稳居前列的是
-     * R 语言统计分析 / 统计分析软件应用 / 多元统计分析 / 社会调查与统计分析。
-     * 起初我以为这是数据重复，查库后确认**不是**：
-     * 788 个技能零完全同名，"统计"相关的 16 个标签分属数学、统计学、生物学、
-     * 大气科学、公共管理、医学等不同学科，都是合法标签。
-     * 反复出现统计簇的真实原因是**用户在同一句话里说了两次"统计"**，
+     * 这里加一条**前端独有的约束：每个学科门类最多 2 个**。
+     *
+     * 实测："我会做数学建模和统计分析，也常常用 Python 处理数据" 的向量结果里，
+     * R 语言统计分析 / 统计分析软件应用 / 多元统计分析 / 社会调查与统计分析
+     * 会挤满名额。起初我以为是数据重复，查库后确认不是 —— 788 个标签零完全同名，
+     * 这些"统计"标签分属数学、统计学、生物学、大气科学、公共管理、医学等不同学科，
+     * 都是合法标签。真正原因是**用户在同一句话里提到了两次"统计"**，
      * 向量检索忠实地反映了这一点。
      *
-     * 所以这里不做"近义消解"（那需要先有同义词图谱，而当前
-     * zy_skill_ontology 只有 3 条关系，远不够用），只做两件有把握的事：
-     *   ① 每门类最多 2 个 —— 防止单一学科刷屏，保证跨学科广度；
-     *   ② 兜底绝对阈值 0.22 —— 砍掉"传感器数据采集"这类长尾弱相关。
+     * 后端已按分数阈值过滤过，但它不关心学科广度（那是展示层的事）。
+     * 这里限制每个门类最多 2 个，保证导引页展示的是"跨学科的能力版图"
+     * 而不是同一门类的近义标签墙。
      */
-    const semanticHits = (semantic?.hits ?? []).filter((h) => h.skillId != null)
     const PER_CATEGORY_LIMIT = 2
-    const MIN_SEMANTIC_SCORE = 0.22
-    const semanticBudget = Math.max(1, Math.floor(MAX_PER_STEP / 2))
-
     const categoryUsed = new Map<string, number>()
-    let semanticAdded = 0
-    for (const h of semanticHits) {
-      if (semanticAdded >= semanticBudget) {
-        break
-      }
-      const id = h.skillId as number
-      if (seen.has(id)) {
+    for (const m of parsed?.matched ?? []) {
+      if (m.matchType !== 'SEMANTIC') {
         continue
       }
-      if (Number(h.score) < MIN_SEMANTIC_SCORE) {
+      if (seen.has(m.skillId)) {
         continue
       }
-      const meta = (h.meta ?? {}) as Record<string, unknown>
-      const cat = String(meta.categoryL1 ?? meta.category_l1 ?? '未分类')
+      const cat = m.categoryL1 || '未分类'
       if ((categoryUsed.get(cat) ?? 0) >= PER_CATEGORY_LIMIT) {
         continue
       }
       categoryUsed.set(cat, (categoryUsed.get(cat) ?? 0) + 1)
-      seen.add(id)
+      seen.add(m.skillId)
       candidates.push({
         skill: {
-          id,
-          name: h.name,
+          id: m.skillId,
+          name: m.name,
           categoryL1: cat,
-          categoryL2: String(meta.categoryL2 ?? meta.category_l2 ?? '')
+          categoryL2: m.categoryL2 ?? ''
         },
-        why: h.reasons?.length
-          ? `${cat} · ${h.reasons.join('；')}`
-          : `${cat} · 语义相近（${Math.round(Number(h.score) * 100)}%）`
+        why: cat + ' · ' + m.reason
       })
-      semanticAdded++
     }
-    const fromVector = semanticAdded
+    const fromVector = candidates.length - fromRule
 
     if (candidates.length === 0) {
-      ElMessage.warning('没抽到匹配的标签，试试更具体的说法')
+      // 后端在灰色区间（有信号但分数不足）会给出可操作的 hint，优先展示它
+      ElMessage.warning(parsed?.hint || '没抽到匹配的标签，试试更具体的说法')
       return
     }
 
@@ -314,7 +303,7 @@ async function parseAndAdd() {
 
     nlText.value = ''
     lastExtract.value = {
-      engine: semantic?.available === false ? '规则词典（语义服务降级）' : (parsed?.engine ?? '规则词典'),
+      engine: parsed?.degraded ? '规则词典（语义服务降级）' : (parsed?.engine ?? '规则词典'),
       fromRule,
       fromVector
     }

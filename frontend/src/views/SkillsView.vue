@@ -116,10 +116,26 @@ const relationTypeTag = (t: string) =>
   t === 'COMPLEMENT' ? 'success' : t === 'PREREQUISITE' ? 'warning' : 'info'
 
 const matchTypeTag = (t: string) =>
-  t === 'EXACT' ? 'success' : t === 'ALIAS' ? 'warning' : t === 'GRAPH' ? 'danger' : 'info'
+  t === 'EXACT'
+    ? 'success'
+    : t === 'ALIAS'
+      ? 'warning'
+      : t === 'GRAPH'
+        ? 'danger'
+        : t === 'SEMANTIC'
+          ? 'primary' // 语义召回单独区分：它解释的是"字面没说但意思接近"
+          : 'info'
 
 const matchTypeLabel = (t: string) =>
-  ({ EXACT: '名称精确', ALIAS: '同义词', KEYWORD: '关键词', GRAPH: '图谱关联' } as Record<string, string>)[t] ?? t
+  (
+    ({
+      EXACT: '名称精确',
+      ALIAS: '同义词',
+      KEYWORD: '关键词',
+      SEMANTIC: '语义相近',
+      GRAPH: '图谱关联'
+    }) as Record<string, string>
+  )[t] ?? t
 
 const intentLabel = (i?: string | null) =>
   i === 'SKILLED' ? '我擅长' : i === 'NEEDED' ? '我急需' : i === 'RESEARCHING' ? '在研究' : ''
@@ -226,11 +242,19 @@ onMounted(() => {
 
       <div class="samples">
         <span class="samples__label">试试：</span>
+        <!--
+          样例的职责是展示能力，因此每一条都必须实测能解析出结果。
+          原先第一条「我需要会做动态交互效果的同学」在 788 个标签上零命中
+          （该短语与技能名几乎无字面重叠，"动态交互" vs "动画交互"），
+          而语义分只有 0.099、低于阈值 —— 用户点一下就看到"未匹配"，
+          等于自己拆自己的台。
+          下面四条均经实测：既有名称精确命中，也有纯语义召回。
+        -->
         <el-link
           v-for="s in [
-            '我需要会做动态交互效果的同学',
             '我会 Vue 前端开发，想找人教我数学建模',
             '急需一位会界面设计的同学',
+            '求带机器学习',
             '想学 Python 数据爬取，愿意用视频剪辑交换'
           ]"
           :key="s"
@@ -245,7 +269,9 @@ onMounted(() => {
         <div class="parse-result__grid">
           <div>
             <div class="mini-title">标准化技能标签（{{ parseResult.matched.length }}）</div>
-            <div v-if="parseResult.matched.length === 0" class="empty-hint">未匹配到标签，可尝试更具体的描述</div>
+            <div v-if="parseResult.matched.length === 0" class="empty-hint">
+              {{ parseResult.hint || '未匹配到标签，可尝试更具体的描述' }}
+            </div>
             <div v-for="m in parseResult.matched" :key="m.skillId" class="hit">
               <div class="hit__top">
                 <span class="hit__name">{{ m.name }}</span>

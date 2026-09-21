@@ -32,7 +32,7 @@ public class SkillMatchVO implements Serializable {
     /** 匹配度 0~1 */
     private BigDecimal score;
 
-    /** 匹配方式：EXACT 名称精确 / ALIAS 同义词 / KEYWORD 关键词 / GRAPH 图谱关联 */
+    /** 匹配类型：EXACT 名称精确 / ALIAS 同义词 / KEYWORD 关键词 / SEMANTIC 语义相近 / GRAPH 图谱关联 */
     private String matchType;
 
     /** 匹配依据说明（可解释性） */
@@ -62,6 +62,14 @@ public class SkillMatchVO implements Serializable {
         ALIAS(0.90),
         /** 名称或描述包含关键词 */
         KEYWORD(0.70),
+        /**
+         * 语义相近（S3 向量检索）。
+         *
+         * <p>权重介于 KEYWORD 与 GRAPH 之间：向量召回能覆盖"字面没说但意思对得上"
+         * 的情况（"求带机器学习" → "机器学习建模"），但它的分数是余弦相似度，
+         * 天然比精确命中低，也不保证一定相关，因此不应压过规则命中。
+         */
+        SEMANTIC(0.60),
         /** 知识图谱关联（互补协作等） */
         GRAPH(0.55);
 
