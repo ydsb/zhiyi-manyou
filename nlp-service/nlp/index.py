@@ -232,8 +232,31 @@ class VectorIndex:
         if self._matrix is None or self._matrix.shape[0] == 0:
             return []
 
+        # ------------------------------------------------------------------
+        # 查询文本必须至少有一个词能对上词表，否则直接返回"无结果"。
+        #
+        # 这是一个真实缺陷的修复：查询分词为空时（实测「宿舍的网又断了」
+        # 「中午吃什么好呢有点饿」在 788 标签的词表里一个词都匹配不到），
+        # TF-IDF 得到全零向量，经 LSA 投影仍是零向量。
+        # 零向量无法归一化（_l2 会产生 0 分量或 NaN），随后
+        # `矩阵 @ q` 的数值结果退化成与"文档向量自身模长"相关，
+        # argpartition 于是**每次都返回同一批文档**：
+        #   「宿舍的网又断了」/「中午吃什么好呢有点饿」/「这个周末打算去看电影」
+        #   三条毫无关系的查询返回了完全相同的 JVM 调优 / Matplotlib 绘图 / 数据标注
+        #   且分数稳定在 0.6824 —— 这是"没有相似度可言"却被当成高相似度返回。
+        #
+        # 把噪声包装成 68% 的匹配结果，比诚实地说"没找到"危害大得多：
+        # 用户会依据它选错标签，且完全无从察觉。
+        # ------------------------------------------------------------------
+        if isinstance(query, str):
+            if not self.embedder.has_known_terms(query):
+                return []
+
         q = query if isinstance(query, np.ndarray) else self.embedder.encode(query)
         q = _l2(q)
+        # 归一化后若整体为零（理论上被上面的词表检查挡住，这里作双重保险）
+        if not np.any(q):
+            return []
 
         candidates = self._candidate_indices(q)
         if not candidates:

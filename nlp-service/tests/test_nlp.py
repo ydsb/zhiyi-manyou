@@ -483,6 +483,31 @@ def test_index_empty():
     Assert.eq(idx.search("任意查询"), [], "空索引应返回空列表")
 
 
+@case("检索：查询全部词表外时应返回空结果，而不是返回任意文档（真实缺陷回归）")
+def test_index_oov_query_returns_empty():
+    """锁定一个真实缺陷。
+
+    原先 embedder.encode() 对"全部词表外"的文本返回 mean_vector 兜底，
+    于是**所有表外查询得到同一个向量**，检索返回同一批文档。
+    实测三条毫无关系的查询拿到完全相同的
+    JVM 调优 / Matplotlib 绘图 / 数据标注，分数稳定在 0.6824 ——
+    把"没有相似度可言"包装成了 68% 的匹配，用户会据此选错标签且无从察觉。
+
+    修复方式：检索路径先判定 has_known_terms()，表外则明确返回空结果。
+    本测试同时验证"表外返回空"与"表内有结果"，防止有人把兜底逻辑加回来。
+    """
+    idx = _fitted_index()
+
+    oov_queries = ["宿舍的网又断了", "中午吃什么好呢有点饿", "这个周末打算去看电影"]
+    for q in oov_queries:
+        assert idx.embedder.has_known_terms(q) is False, f"「{q}」应被判定为词表外"
+        Assert.eq(idx.search(q), [], f"词表外查询「{q}」必须返回空结果，不能返回任意文档")
+
+    # 反向：表内查询仍应有结果（防止修复过度把正常检索也堵掉）
+    hits = idx.search("数据大屏 可视化", top_k=3)
+    assert len(hits) > 0, "词表内查询仍应返回结果"
+
+
 @case("检索：保存与加载后结果应一致")
 def test_index_roundtrip():
     idx = _fitted_index()

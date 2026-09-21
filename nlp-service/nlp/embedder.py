@@ -153,6 +153,25 @@ class SemanticEmbedder:
         v = self.components @ sparse_row.astype(np.float32)
         return _l2(v)
 
+    def has_known_terms(self, text: str) -> bool:
+        """文本是否至少含一个词表内的 token。
+
+        <p>用于检索前的前置判定。**为什么必须有它**：
+        {@link encode} 对全部词表外的文本会返回 mean_vector 兜底（见该方法注释），
+        于是所有表外查询得到**同一个向量**，检索就会返回同一批文档。
+        实测三条毫无关系的查询（「宿舍的网又断了」「中午吃什么好呢有点饿」
+        「这个周末打算去看电影」）因此返回了完全相同的
+        JVM 调优 / Matplotlib 绘图 / 数据标注，且分数稳定在 0.6824 ——
+        把"没有相似度可言"包装成了 68% 的匹配。
+
+        @param text 文本
+        @return     含至少一个词表内 token 返回 True
+        """
+        if not self._fitted:
+            raise RuntimeError("嵌入器尚未拟合，请先调用 fit() 或 load()")
+        sparse = self.vectorizer.transform_sparse(text)
+        return bool(sparse)
+
     def encode(self, text: str) -> np.ndarray:
         """把文本编码为 L2 归一化的稠密向量。
 
@@ -165,8 +184,12 @@ class SemanticEmbedder:
 
         sparse = self.vectorizer.transform_sparse(text)
         if not sparse:
-            # 全部词表外（生僻表述）：用平均向量兜底，
-            # 这样检索仍能返回"整体最相关"的结果，而不是空结果
+            # 全部词表外（生僻表述）：用平均向量兜底。
+            #
+            # 注意：调用方**不应**把这里的兜底当成"有结果" ——
+            # 所有表外文本会得到同一个向量，检索结果也就完全相同。
+            # 检索路径必须先调 has_known_terms() 判定，再决定是否编码。
+            # 保留兜底是为了 encode_batch 等场景不至于崩，不是为了让检索有输出。
             return self.mean_vector.copy() if self.mean_vector is not None \
                 else np.zeros(self.dim, dtype=np.float32)
 
