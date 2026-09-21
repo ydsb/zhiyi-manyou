@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { profileApi, exportReportAsPdf } from '@/api/profile'
+import { profileApi, exportReportAsPdf, downloadExportJson } from '@/api/profile'
 import type { Badge, SkillProfile, SkillProfileEntry } from '@/api/types'
 
 /**
@@ -176,8 +176,26 @@ async function exportReport() {
   }
 }
 
-function exportData() {
-  ElMessage.info('数据导出接口待开发（FR-M1-07）')
+/**
+ * 导出我的全部个人数据（FR-M1-07）。
+ *
+ * <p>原先这里是一句 `ElMessage.info('数据导出接口待开发（FR-M1-07）')` ——
+ * 一个点得到的按钮却是死的。现在接真实接口，落成 JSON 文件供备份与迁移。
+ */
+const exporting = ref(false)
+
+async function exportData() {
+  exporting.value = true
+  try {
+    const data = await profileApi.exportData()
+    const filename = downloadExportJson(data)
+    const total = Object.values(data.counts ?? {}).reduce((s, n) => s + n, 0)
+    ElMessage.success(`已导出 ${total} 条数据：${filename}`)
+  } catch {
+    // 提示由响应拦截器统一处理
+  } finally {
+    exporting.value = false
+  }
 }
 </script>
 
@@ -261,7 +279,7 @@ function exportData() {
           </p>
           <div class="panel__actions">
             <el-button type="primary" plain @click="exportReport">导出能力鉴定报告</el-button>
-            <el-button text @click="exportData">导出我的数据</el-button>
+            <el-button text :loading="exporting" @click="exportData">导出我的数据</el-button>
           </div>
         </div>
 

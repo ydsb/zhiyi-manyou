@@ -2,6 +2,7 @@ import { request } from './request'
 import type {
   AbilityReport,
   Badge,
+  DataExport,
   GrowthTrend,
   RadarChart,
   SkillProfile,
@@ -40,6 +41,17 @@ export const profileApi = {
   /** 能力雷达图（FR-M7-01/02）。实时计算，完成交换后立即刷新。 */
   radar() {
     return request<RadarChart>({ url: '/profile/radar', method: 'get' })
+  },
+
+  /**
+   * 导出我的全部个人数据（FR-M1-07）。
+   *
+   * 返回结构化 JSON，由 `downloadJson()` 落成文件。
+   * 与《能力鉴定报告》分工不同：报告是给第三方看的凭证，
+   * 本接口是给用户自己的完整底稿。
+   */
+  exportData() {
+    return request<DataExport>({ url: '/profile/export', method: 'get' })
   },
 
   /** 成长轨迹（FR-M7-07）：基于月度快照的历史曲线 */
@@ -98,6 +110,36 @@ export const profileApi = {
       data: { items }
     })
   }
+}
+
+/**
+ * 把导出数据落成 JSON 文件并触发下载（FR-M1-07）。
+ *
+ * <p><b>为什么用前端生成文件而不是后端直接返回附件</b>：
+ * 后端的统一响应体是 {@code {code,message,data,traceId,timestamp}}，
+ * 若为导出单独返回 {@code Content-Disposition: attachment}，
+ * 就得在响应约定上开一个例外（拦截器要判断 content-type、跳过 code 校验）。
+ * 前端已有完整数据，用 Blob 落盘成本更低，且能顺便把文件名带上导出时间。
+ *
+ * @param data 导出数据
+ * @returns 落盘的文件名
+ */
+export function downloadExportJson(data: DataExport): string {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  const filename = `知驿漫游-个人数据-${data.sno}-${stamp}.json`
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: 'application/json;charset=utf-8'
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  // 释放对象 URL，否则这份数据会一直占着内存直到页面关闭
+  URL.revokeObjectURL(url)
+  return filename
 }
 
 /**

@@ -904,6 +904,42 @@ export interface SkillProfileSaveItem {
   level?: number
 }
 
+/* ==================== 个人数据导出（FR-M1-07） ==================== */
+
+/**
+ * 个人数据导出结果。
+ *
+ * 与《能力鉴定报告》分工不同：报告是给第三方看的**凭证**（带校验码可验真），
+ * 本导出是给用户自己的**完整底稿**（备份 / 迁移 / 自行分析）。
+ */
+export interface DataExport {
+  /** 格式版本，形如 zhiyi-export/1.0，便于解析方识别结构变化 */
+  formatVersion: string
+  exportedAt: string
+  sno: string
+  /** 说明包含与不包含哪些数据 */
+  note: string
+  account: UserInfo
+  skills: SkillProfile | null
+  ability: {
+    dimensionScores: Record<string, number | null>
+    dimensionEvidence: Record<string, string>
+    overallScore: number | null
+    sampleCount: number
+    totalHours: number | null
+    avgScore: number | null
+    caliberNote: string
+  } | null
+  demands: Array<Record<string, unknown>>
+  exchanges: Array<Record<string, unknown>>
+  receivedEvaluations: Array<Record<string, unknown>>
+  creditLedger: Array<Record<string, unknown>>
+  badges: Array<Record<string, unknown>>
+  messages: Array<Record<string, unknown>>
+  /** 各板块条目数汇总 */
+  counts: Record<string, number>
+}
+
 /* ==================== 语义检索（S3 · FR-M3-02 / FR-M3-05） ==================== */
 
 /** 语义检索命中项 */

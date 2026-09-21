@@ -3,6 +3,7 @@ package com.nwu.zhiyi.api.controller;
 import com.nwu.zhiyi.api.dto.UserInfoVO;
 import com.nwu.zhiyi.api.dto.profile.AbilityReportVO;
 import com.nwu.zhiyi.api.dto.profile.BadgeVO;
+import com.nwu.zhiyi.api.dto.profile.DataExportVO;
 import com.nwu.zhiyi.api.dto.profile.GrowthTrendVO;
 import com.nwu.zhiyi.api.dto.profile.ProfileUpdateRequest;
 import com.nwu.zhiyi.api.dto.profile.RadarChartVO;
@@ -11,6 +12,7 @@ import com.nwu.zhiyi.api.dto.profile.SkillProfileVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.security.SecurityUtils;
 import com.nwu.zhiyi.service.AuthService;
+import com.nwu.zhiyi.service.profile.DataExportService;
 import com.nwu.zhiyi.service.profile.ProfileService;
 import com.nwu.zhiyi.service.profile.SkillProfileService;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +47,28 @@ public class ProfileController {
 
     private final ProfileService profileService;
     private final SkillProfileService skillProfileService;
+    private final DataExportService dataExportService;
     private final AuthService authService;
+
+    /**
+     * 导出我的全部个人数据（FR-M1-07）。
+     *
+     * <p>返回结构化 JSON，供用户备份、迁移或自行分析。
+     * 与《能力鉴定报告》（给第三方看的凭证）分工不同 —— 报告面向简历与测评，
+     * 本接口面向用户自己的完整底稿。
+     *
+     * <p>隐私边界：只含关于我的数据；不含我对他人的评价原文、
+     * 不含他人学号与联系方式；匿名互评保持匿名。
+     *
+     * <pre>GET /api/profile/export</pre>
+     */
+    @GetMapping("/export")
+    public ApiResponse<DataExportVO> exportData() {
+        DataExportVO data = dataExportService.export(SecurityUtils.currentSno());
+        int total = data.getCounts() == null ? 0
+                : data.getCounts().values().stream().mapToInt(Integer::intValue).sum();
+        return ApiResponse.success("已导出 " + total + " 条个人数据", data);
+    }
 
     /**
      * 修改个人资料（FR-M1-05）。
