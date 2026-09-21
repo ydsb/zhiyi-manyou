@@ -441,6 +441,24 @@ export interface CollabTask {
   createdBy?: string
   /** 是否由当前用户负责 */
   mine?: boolean
+  /* ---- FR-M5-08 阶段性成果双向确认 ---- */
+  /**
+   * 对方是否已确认该阶段成果。
+   *
+   * 与 `status` 是两个独立事实：`DONE` 只说明"某人宣称完成"，
+   * `confirmed` 才说明"对方认可"。界面上必须分开显示 ——
+   * 否则"单方面宣称完成"与"双方确认完成"看起来一样，
+   * FR-M5-08 想解决的问题就白做了。
+   */
+  confirmed?: boolean
+  confirmedBy?: string | null
+  confirmedByName?: string | null
+  confirmedAt?: string | null
+  confirmRemark?: string | null
+  /** 打卡者学号（宣称完成的人） */
+  doneBy?: string | null
+  /** 当前用户是否可以确认 —— 由服务端算好下发，前端不要自行判断 */
+  canConfirm?: boolean
 }
 
 /** 协作文件版本（FR-M5-03） */
@@ -529,6 +547,14 @@ export interface ProcessSummary {
   durationMinutes?: number
   taskTotal?: number
   taskDone?: number
+  /**
+   * 其中已被协作方确认的任务数（FR-M5-08）。
+   *
+   * 与 `taskDone` 分开：`taskDone` 只说明"有人点了完成"，
+   * 而 FR-M5-08 要解决的正是"单方面宣称完成"。合并成一个数字，
+   * 单方面打卡与双方认可在指标上就完全一样了。
+   */
+  taskConfirmed?: number
   taskDoing?: number
   taskTodo?: number
   taskOverdue?: number

@@ -3,6 +3,7 @@ package com.nwu.zhiyi.service.collab;
 import com.nwu.zhiyi.api.dto.collab.CollabFileVO;
 import com.nwu.zhiyi.api.dto.collab.CollabMessageVO;
 import com.nwu.zhiyi.api.dto.collab.CollabTaskVO;
+import com.nwu.zhiyi.api.dto.collab.TaskConfirmRequest;
 import com.nwu.zhiyi.api.dto.collab.MessageSendRequest;
 import com.nwu.zhiyi.api.dto.collab.ProcessSummaryVO;
 import com.nwu.zhiyi.api.dto.collab.TaskCreateRequest;
@@ -60,6 +61,21 @@ public interface WorkspaceService {
      * @return 修改后的任务
      */
     CollabTaskVO updateTask(Long recordId, Long taskId, String operator, TaskUpdateRequest request);
+
+    /**
+     * 确认阶段性成果（FR-M5-08）。
+     *
+     * <p>需求原文：「阶段性成果支持互相同步确认，避免单方面宣称完成」。
+     * 任务被标记完成后，须由<b>协作方</b>（负责人或创建人中不是打卡者的那个）
+     * 确认，才算"双方认可的成果"；打卡者不能确认自己。
+     *
+     * @param recordId 交换记录 ID
+     * @param taskId   任务 ID
+     * @param operator 操作人（确认人）
+     * @param request  确认说明，可为 null
+     * @return 确认后的任务视图
+     */
+    CollabTaskVO confirmTask(Long recordId, Long taskId, String operator, TaskConfirmRequest request);
 
     /**
      * 删除任务项。

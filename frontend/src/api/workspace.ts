@@ -54,6 +54,20 @@ export const workspaceApi = {
     return request<void>({ url: `/workspaces/${recordId}/tasks/${taskId}`, method: 'delete' })
   },
 
+  /**
+   * 确认阶段性成果（FR-M5-08）。
+   *
+   * 打卡（`status=DONE`）只表示"某人宣称完成"，本接口才是"协作方认可"。
+   * 打卡者不能确认自己；是否有权确认由服务端判定并下发给 `canConfirm`。
+   */
+  confirmTask(recordId: number, taskId: number, remark?: string) {
+    return request<CollabTask>({
+      url: `/workspaces/${recordId}/tasks/${taskId}/confirm`,
+      method: 'post',
+      data: { remark }
+    })
+  },
+
   /* ---------------- 文件（FR-M5-03） ---------------- */
 
   /** 不传 groupKey → 各文件最新版；传 groupKey → 该文件全部历史版本 */

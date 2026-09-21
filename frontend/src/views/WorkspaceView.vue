@@ -71,6 +71,14 @@ const summary = computed<ProcessSummary | undefined>(() => ws.value?.processSumm
 const todoTasks = computed(() => ws.value?.tasks.filter((t) => t.status !== 'DONE') ?? [])
 const doneTasks = computed(() => ws.value?.tasks.filter((t) => t.status === 'DONE') ?? [])
 
+/**
+ * 已完成任务中，已被协作方确认的数量（FR-M5-08）。
+ *
+ * 用于在"已完成"分组标题上直接显示"其中双方确认 N 个" ——
+ * 这是本机制的价值所在：让"单方面宣称完成"在指标上一眼可见。
+ */
+const confirmedCount = computed(() => doneTasks.value.filter((t) => t.confirmed === true).length)
+
 async function load() {
   loading.value = true
   loadError.value = ''
@@ -168,6 +176,69 @@ async function setTaskStatus(task: CollabTask, status: 'TODO' | 'DOING') {
   try {
     await workspaceApi.updateTask(recordId, task.id, { status })
     ElMessage.success(status === 'DOING' ? '已标记为进行中' : '已退回待开始')
+    await load()
+  } catch {
+    // 已提示
+  }
+}
+
+/* ---------------- FR-M5-08 阶段性成果双向确认 ---------------- */
+
+/**
+ * 确认协作方提交的阶段成果。
+ *
+ * <p>`canConfirm` 由服务端判定下发（"是交换参与方且不是打卡者"），
+ * 前端不重复实现该规则 —— 复刻必然走样，走样的后果是
+ * 用户看到可点的按钮、点下去却报错。
+ */
+async function confirmTask(task: CollabTask) {
+  let remark: string | undefined
+  try {
+    const res = await ElMessageBox.prompt(
+      `确认「${task.title}」这一阶段成果吗？确认后该成果将计入"双方认可"的过程指标。`,
+      '确认阶段成果',
+      {
+        confirmButtonText: '确认通过',
+        cancelButtonText: '再看看',
+        inputPlaceholder: '确认说明（可选，有补充意见可写在这里）',
+        inputValue: ''
+      }
+    )
+    remark = res.value || undefined
+  } catch {
+    return
+  }
+  try {
+    await workspaceApi.confirmTask(recordId, task.id, remark)
+    ElMessage.success('已确认该阶段成果，双方达成一致')
+    await load()
+  } catch {
+    // 已提示（自确认、重复确认等由服务端给出具体原因）
+  }
+}
+
+/**
+ * 撤回已完成的打卡，退回"进行中"重做。
+ *
+ * <p>撤回会同时清空对方的确认 —— 成果已经改变，旧的认可对新成果不成立。
+ * 这一点必须在确认框里讲清楚，否则用户会以为只是改个状态而已。
+ */
+async function revertTask(task: CollabTask) {
+  const hasConfirm = task.confirmed === true
+  try {
+    await ElMessageBox.confirm(
+      hasConfirm
+        ? `「${task.title}」已被协作方确认。撤回重做将同时清空该确认（成果已变更，原确认不再适用），确定继续吗？`
+        : `确定把「${task.title}」退回「进行中」重做吗？`,
+      '撤回完成状态',
+      { confirmButtonText: '撤回重做', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await workspaceApi.updateTask(recordId, task.id, { status: 'DOING' })
+    ElMessage.success(hasConfirm ? '已撤回，对方的确认已同时清空' : '已退回进行中')
     await load()
   } catch {
     // 已提示
@@ -298,7 +369,13 @@ async function transition(target: string) {
   }
 }
 
-function fmtDate(t?: string) {
+/**
+ * 格式化日期时间。
+ *
+ * 参数接受 null：后端配了 `default-property-inclusion: non_null`，
+ * 可空时间字段在响应里可能直接缺失或为 null，签名收得太窄会到处要加 `?? undefined`。
+ */
+function fmtDate(t?: string | null) {
   if (!t) return ''
   return t.replace('T', ' ').slice(0, 16)
 }
@@ -485,21 +562,56 @@ onMounted(load)
           </div>
         </div>
 
+        <!--
+          已完成分组（FR-M5-08）。
+          「已完成」只是"某人宣称完成"，必须再区分"是否已被协作方确认" ——
+          否则单方面打卡与双方认可在界面上看起来一样，本机制就白做了。
+        -->
         <div v-if="doneTasks.length" class="done-group">
-          <div class="done-group__title">已完成（{{ doneTasks.length }}）</div>
+          <div class="done-group__title">
+            已完成（{{ doneTasks.length }}）
+            <span class="done-group__sub">
+              其中已被协作方确认 {{ confirmedCount }} 个
+            </span>
+          </div>
           <div v-for="task in doneTasks" :key="task.id" class="task task--done">
             <div class="task__main">
               <div class="task__top">
                 <el-tag size="small" type="success" effect="plain">已完成</el-tag>
+                <el-tag
+                  v-if="task.confirmed"
+                  size="small"
+                  type="success"
+                  effect="dark"
+                >双方已确认</el-tag>
+                <el-tag v-else size="small" type="warning" effect="plain">待协作方确认</el-tag>
                 <span class="task__title">{{ task.title }}</span>
                 <el-tag v-if="task.assigneeName" size="small" effect="plain">{{ task.assigneeName }}</el-tag>
                 <span class="task__deadline">完成于 {{ fmtDate(task.doneAt) }}</span>
               </div>
               <div v-if="task.description" class="task__desc">{{ task.description }}</div>
               <div v-if="task.evidenceUrl" class="task__evidence">证据：{{ task.evidenceUrl }}</div>
+              <div v-if="task.confirmed" class="task__confirm">
+                由 {{ task.confirmedByName || task.confirmedBy }} 于 {{ fmtDate(task.confirmedAt) }} 确认
+                <template v-if="task.confirmRemark"> · {{ task.confirmRemark }}</template>
+              </div>
             </div>
             <div class="task__ops">
+              <!-- canConfirm 由服务端判定下发，前端不自行推断 -->
+              <el-button
+                v-if="task.canConfirm"
+                size="small"
+                type="success"
+                @click="confirmTask(task)"
+              >确认成果</el-button>
               <el-button size="small" text @click="openEditTask(task)">编辑</el-button>
+              <el-button
+                v-if="task.status === 'DONE'"
+                size="small"
+                text
+                type="warning"
+                @click="revertTask(task)"
+              >撤回重做</el-button>
             </div>
           </div>
         </div>
@@ -1313,5 +1425,24 @@ onMounted(load)
 }
 .load-error-actions {
   margin-top: 12px;
+}
+
+/* ---------------- FR-M5-08 双向确认 ---------------- */
+
+.done-group__sub {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--zy-text-placeholder);
+}
+
+.task__confirm {
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: var(--zy-radius-sm);
+  background: rgba(103, 194, 58, 0.1);
+  font-size: 11px;
+  line-height: 1.6;
+  color: #3f7a1f;
 }
 </style>

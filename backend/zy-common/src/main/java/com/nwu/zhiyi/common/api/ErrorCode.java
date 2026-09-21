@@ -78,6 +78,11 @@ public enum ErrorCode {
     FILE_TYPE_NOT_ALLOWED(3046, "不支持的文件类型"),
     FILE_TOO_LARGE(3047, "文件大小超出限制"),
     MESSAGE_EMPTY(3048, "留言内容不能为空"),
+    /* ---------------- M5 阶段性成果双向确认（FR-M5-08） ---------------- */
+    TASK_NOT_DONE_YET(3049, "任务尚未标记完成，暂无可确认的成果"),
+    TASK_ALREADY_CONFIRMED(3102, "该任务已确认过，无需重复确认"),
+    TASK_CONFIRM_SELF_FORBIDDEN(3103, "不能确认自己提交的成果，需由协作方确认"),
+    TASK_CONFIRM_NOT_ALLOWED(3104, "只有该任务的负责人或创建人可以确认"),
 
     /* ---------------- 3xxx 双向互评（M6） ---------------- */
     EVALUATION_NOT_ALLOWED_STATUS(3050, "当前交换状态不可评价"),

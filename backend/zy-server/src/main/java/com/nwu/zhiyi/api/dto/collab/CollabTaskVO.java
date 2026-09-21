@@ -46,6 +46,40 @@ public class CollabTaskVO implements Serializable {
     /** 是否由当前用户负责 */
     private Boolean mine;
 
+    /* ---------------- FR-M5-08 阶段性成果双向确认 ---------------- */
+
+    /**
+     * 对方是否已确认该阶段成果。
+     *
+     * <p>与 {@link #status} 是两个独立事实：`DONE` 只说明"某人宣称完成"，
+     * `confirmed` 才说明"对方认可"。前端必须把两者分开显示 ——
+     * 否则"单方面宣称完成"与"双方确认完成"看起来一样，
+     * FR-M5-08 想解决的问题就白做了。
+     */
+    private Boolean confirmed;
+
+    /** 确认人学号 */
+    private String confirmedBy;
+
+    /** 确认人展示名 */
+    private String confirmedByName;
+
+    private LocalDateTime confirmedAt;
+
+    /** 确认说明 */
+    private String confirmRemark;
+
+    /** 打卡者学号（宣称完成的人） */
+    private String doneBy;
+
+    /**
+     * 当前查看者是否可以确认这个任务。
+     *
+     * <p>由服务端算好下发，而不是前端自己判断 —— 判定规则涉及
+     * "打卡者不能自确认""必须是负责人或创建人"，前端复刻一遍必然会走样。
+     */
+    private Boolean canConfirm;
+
     public static CollabTaskVO of(CollabTask task) {
         if (task == null) {
             return null;
@@ -67,6 +101,11 @@ public class CollabTaskVO implements Serializable {
         vo.setDoneAt(task.getDoneAt());
         vo.setCreatedAt(task.getCreatedAt());
         vo.setCreatedBy(task.getCreatedBy());
+        vo.setConfirmed(CollabTask.isConfirmed(task));
+        vo.setConfirmedBy(task.getConfirmedBy());
+        vo.setConfirmedAt(task.getConfirmedAt());
+        vo.setConfirmRemark(task.getConfirmRemark());
+        vo.setDoneBy(task.getDoneBy());
         return vo;
     }
 }

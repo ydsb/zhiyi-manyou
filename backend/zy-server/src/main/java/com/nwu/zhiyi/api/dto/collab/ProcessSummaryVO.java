@@ -38,6 +38,15 @@ public class ProcessSummaryVO implements Serializable {
 
     private Integer taskTotal;
     private Integer taskDone;
+    /**
+     * 其中已被协作方确认的任务数（FR-M5-08）。
+     *
+     * <p><b>为什么必须与 {@link #taskDone} 分开统计</b>：`taskDone` 只说明
+     * "有人点了完成"，而 FR-M5-08 要解决的正是"单方面宣称完成"。
+     * 若两者合并成一个数字，单方面打卡与双方认可在指标上完全一样，
+     * 这个机制就白做了 —— 指标必须能反映协作的真实质量，而不是谁点得快。
+     */
+    private Integer taskConfirmed;
     private Integer taskDoing;
     private Integer taskTodo;
     /** 已逾期且未完成的任务数 */

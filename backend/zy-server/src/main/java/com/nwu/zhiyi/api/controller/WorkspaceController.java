@@ -6,6 +6,7 @@ import com.nwu.zhiyi.api.dto.collab.CollabMessageVO;
 import com.nwu.zhiyi.api.dto.collab.CollabTaskVO;
 import com.nwu.zhiyi.api.dto.collab.MessageSendRequest;
 import com.nwu.zhiyi.api.dto.collab.ProcessSummaryVO;
+import com.nwu.zhiyi.api.dto.collab.TaskConfirmRequest;
 import com.nwu.zhiyi.api.dto.collab.TaskCreateRequest;
 import com.nwu.zhiyi.api.dto.collab.TaskUpdateRequest;
 import com.nwu.zhiyi.api.dto.collab.WorkspaceVO;
@@ -102,6 +103,24 @@ public class WorkspaceController {
         CollabTaskVO vo = workspaceService.updateTask(recordId, taskId, SecurityUtils.currentSno(), request);
         String message = "DONE".equals(vo.getStatus()) ? "已打卡完成" : "任务已更新";
         return ApiResponse.success(message, vo);
+    }
+
+    /**
+     * 确认阶段性成果（FR-M5-08）。
+     *
+     * <p>需求：「阶段性成果支持互相同步确认，避免单方面宣称完成」。
+     * 打卡（`status=DONE`）只表示"某人宣称完成"，本接口才是"对方认可"。
+     * 打卡者不能确认自己。
+     *
+     * <pre>POST /api/workspaces/{recordId}/tasks/{taskId}/confirm</pre>
+     */
+    @PostMapping("/{recordId}/tasks/{taskId}/confirm")
+    public ApiResponse<CollabTaskVO> confirmTask(@PathVariable Long recordId,
+                                                 @PathVariable Long taskId,
+                                                 @RequestBody(required = false) TaskConfirmRequest request) {
+        CollabTaskVO vo = workspaceService.confirmTask(
+                recordId, taskId, SecurityUtils.currentSno(), request);
+        return ApiResponse.success("已确认该阶段成果，双方达成一致", vo);
     }
 
     /**

@@ -5,6 +5,7 @@ import com.nwu.zhiyi.api.dto.collab.CollabEventVO;
 import com.nwu.zhiyi.api.dto.collab.CollabFileVO;
 import com.nwu.zhiyi.api.dto.collab.CollabMessageVO;
 import com.nwu.zhiyi.api.dto.collab.CollabTaskVO;
+import com.nwu.zhiyi.api.dto.collab.TaskConfirmRequest;
 import com.nwu.zhiyi.api.dto.collab.MessageSendRequest;
 import com.nwu.zhiyi.api.dto.collab.ProcessSummaryVO;
 import com.nwu.zhiyi.api.dto.collab.TaskCreateRequest;
@@ -203,7 +204,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         vo.setCanSubmitEval(status == ExchangeStatus.PENDING_EVAL);
 
         // 内容：只要交换开始过就回显（已完成/已取消为只读），未开始时返回空集合供前端展示引导态
-        vo.setTasks(readable ? buildTaskVOs(recordId, viewerSno) : List.of());
+        vo.setTasks(readable ? buildTaskVOs(recordId, viewerSno, record) : List.of());
         vo.setFiles(readable ? buildLatestFileVOs(recordId) : List.of());
         vo.setMessages(readable ? buildMessageVOs(recordId, viewerSno, DEFAULT_MESSAGE_LIMIT) : List.of());
         vo.setTimeline(readable ? buildTimeline(recordId, viewerSno, 100) : List.of());
@@ -266,7 +267,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 "「" + task.getTitle() + "」" + (assignee == null ? "" : "（" + who + "）"));
 
         log.info("[协作任务] 新建 record={} task={} assignee={}", record.getRecordNo(), task.getId(), assignee);
-        return enrichAssignee(toTaskVO(task, operator));
+        return enrichAssignee(toTaskVO(task, operator, record));
     }
 
     @Override
@@ -300,6 +301,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
         TaskStatus previous = task.getStatus();
         boolean becameDone = false;
+        boolean revertedFromDone = false;
         if (StringUtils.hasText(request.getStatus())) {
             TaskStatus target = parseTaskStatus(request.getStatus());
             if (target == previous && target != TaskStatus.DONE) {
@@ -308,19 +310,47 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 if (previous == TaskStatus.DONE) {
                     throw new BusinessException(ErrorCode.TASK_ALREADY_DONE);
                 }
-                // 打卡：记录完成时间，这是按期率的计算依据
-                update.setStatus(TaskStatus.DONE).setDoneAt(LocalDateTime.now());
+                // 打卡：记录完成时间（按期率的计算依据）与打卡人（FR-M5-08 判定"谁有权确认"）
+                update.setStatus(TaskStatus.DONE).setDoneAt(LocalDateTime.now()).setDoneBy(operator);
                 becameDone = true;
             } else {
                 if (previous == TaskStatus.DONE) {
-                    throw new BusinessException(ErrorCode.TASK_STATUS_ILLEGAL, "已完成的任务不能退回未完成状态");
+                    /*
+                     * 允许从已完成退回。
+                     *
+                     * 原先这里直接抛异常（"已完成的任务不能退回未完成状态"），
+                     * 后果是误点"完成"后用户无法自救 —— 只能找管理员改库。
+                     * 现在放行，但必须清空确认状态：成果已经改变，
+                     * 对方此前对旧成果的认可对新成果不再成立。
+                     *
+                     * 清空用显式 SQL 而不是"设为 null 后 updateById"：
+                     * MP 的默认策略会跳过 null 字段，那样只会把 confirmed 置 0，
+                     * 而 confirmed_by / confirmed_at 仍留着旧值 ——
+                     * 审计时会看到"未确认却带着确认人"的自相矛盾数据。
+                     * （端到端验证发现了这个残留，单测覆盖不到。）
+                     */
+                    update.setStatus(target);
+                    revertedFromDone = true;
+                } else {
+                    update.setStatus(target);
                 }
-                update.setStatus(target);
             }
         }
 
-        taskMapper.updateById(update);
+        if (revertedFromDone) {
+            taskMapper.updateById(update);
+            taskMapper.clearConfirmation(taskId);
+        } else {
+            taskMapper.updateById(update);
+        }
         CollabTask fresh = taskMapper.selectById(taskId);
+
+        if (revertedFromDone) {
+            recordEvent(recordId, operator, CollabEvent.TYPE_TASK_CREATE,
+                    "撤回任务「" + fresh.getTitle() + "」的完成状态",
+                    "该任务此前的对方确认已同时清空（成果已变更，原确认不再适用）", "TASK", taskId);
+            log.info("[协作任务] 撤回完成 record={} task={}", record.getRecordNo(), taskId);
+        }
 
         if (becameDone) {
             // 按期与否
@@ -337,7 +367,65 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                     "「" + fresh.getTitle() + "」" + (onTime ? "已按期完成" : "已逾期完成"));
             log.info("[协作任务] 打卡 record={} task={} onTime={}", record.getRecordNo(), taskId, onTime);
         }
-        return enrichAssignee(toTaskVO(fresh, operator));
+        return enrichAssignee(toTaskVO(fresh, operator, record));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public CollabTaskVO confirmTask(Long recordId, Long taskId, String operator, TaskConfirmRequest request) {
+        ExchangeRecord record = requireActiveCollaboration(recordId, operator);
+        CollabTask task = taskMapper.selectById(taskId);
+        if (task == null || !recordId.equals(task.getRecordId())) {
+            throw new BusinessException(ErrorCode.TASK_NOT_FOUND);
+        }
+
+        /*
+         * 只有"已标记完成"的成果才需要被确认。
+         * 未完成就去确认没有意义：对方还没交付任何东西。
+         */
+        if (task.getStatus() != TaskStatus.DONE) {
+            throw new BusinessException(ErrorCode.TASK_NOT_DONE_YET,
+                    "任务「" + task.getTitle() + "」当前状态为「"
+                            + task.getStatus().getLabel() + "」，需先由协作方标记完成");
+        }
+        if (CollabTask.isConfirmed(task)) {
+            throw new BusinessException(ErrorCode.TASK_ALREADY_CONFIRMED,
+                    "该任务已由 " + task.getConfirmedBy() + " 于 " + task.getConfirmedAt() + " 确认");
+        }
+
+        /*
+         * 权限判定（FR-M5-08 的核心）。
+         *
+         * 必须由协作方确认，且不能是自己确认自己。分两步给不同错误码，
+         * 因为两种情形的处置方式完全不同：
+         *   - 打卡者确认自己 → 用户操作错误，提示"需由协作方确认"；
+         *   - 非本次交换的参与方 → 无权操作。
+         * 合成一个"无权确认"会让人以为是权限配置问题。
+         */
+        if (operator.equals(task.getDoneBy())) {
+            throw new BusinessException(ErrorCode.TASK_CONFIRM_SELF_FORBIDDEN,
+                    "「" + task.getTitle() + "」由你标记完成，需由协作方确认后才计入确认完成的成果");
+        }
+        if (!task.canBeConfirmedBy(operator, record.getGiverSno(), record.getTakerSno())) {
+            throw new BusinessException(ErrorCode.TASK_CONFIRM_NOT_ALLOWED);
+        }
+
+        CollabTask update = new CollabTask().setId(taskId);
+        update.markConfirmed(operator, trimToNull(request == null ? null : request.getRemark()));
+        taskMapper.updateById(update);
+        CollabTask fresh = taskMapper.selectById(taskId);
+
+        recordEvent(recordId, operator, CollabEvent.TYPE_TASK_DONE,
+                "确认任务「" + fresh.getTitle() + "」的阶段成果",
+                fresh.getConfirmRemark() == null ? "确认无异议" : "确认说明：" + fresh.getConfirmRemark(),
+                "TASK", taskId);
+        notificationService.sendToExchangeParties(recordId, operator,
+                NotificationType.TASK_DONE, "协作方确认了你的成果",
+                "「" + fresh.getTitle() + "」已获对方确认");
+        log.info("[协作任务] 确认成果 record={} task={} by={}",
+                record.getRecordNo(), taskId, operator);
+
+        return enrichAssignee(toTaskVO(fresh, operator, record));
     }
 
     @Override
@@ -359,11 +447,11 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
     @Override
     public List<CollabTaskVO> listTasks(Long recordId, String viewerSno) {
-        requireParticipant(recordId, viewerSno);
-        return buildTaskVOs(recordId, viewerSno);
+        ExchangeRecord record = requireParticipant(recordId, viewerSno);
+        return buildTaskVOs(recordId, viewerSno, record);
     }
 
-    private List<CollabTaskVO> buildTaskVOs(Long recordId, String viewerSno) {
+    private List<CollabTaskVO> buildTaskVOs(Long recordId, String viewerSno, ExchangeRecord record) {
         List<CollabTask> tasks = taskMapper.selectList(new LambdaQueryWrapper<CollabTask>()
                 .eq(CollabTask::getRecordId, recordId)
                 .orderByAsc(CollabTask::getSortOrder)
@@ -373,16 +461,23 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         }
         Set<String> snos = tasks.stream().map(CollabTask::getAssigneeSno)
                 .filter(StringUtils::hasText).collect(Collectors.toCollection(LinkedHashSet::new));
+        // 确认人姓名与负责人姓名一次性批量取，避免 N+1（任务是列表渲染热点）
+        tasks.stream().map(CollabTask::getConfirmedBy)
+                .filter(StringUtils::hasText).forEach(snos::add);
         Map<String, Student> students = snos.isEmpty() ? Map.of()
                 : studentMapper.selectBriefBySnos(snos).stream()
                 .collect(Collectors.toMap(Student::getSno, s -> s, (a, b) -> a));
 
         return tasks.stream().map(t -> {
-            CollabTaskVO vo = toTaskVO(t, viewerSno);
+            CollabTaskVO vo = toTaskVO(t, viewerSno, record);
             Student s = t.getAssigneeSno() == null ? null : students.get(t.getAssigneeSno());
             if (s != null) {
                 vo.setAssigneeName(s.displayName());
                 vo.setAssigneeCollege(s.getCollege());
+            }
+            Student confirmer = t.getConfirmedBy() == null ? null : students.get(t.getConfirmedBy());
+            if (confirmer != null) {
+                vo.setConfirmedByName(confirmer.displayName());
             }
             return vo;
         }).collect(Collectors.toList());
@@ -396,23 +491,51 @@ public class WorkspaceServiceImpl implements WorkspaceService {
      * 的响应里拿不到负责人名字，只能等下一次列表刷新，体验上会闪一下。
      */
     private CollabTaskVO enrichAssignee(CollabTaskVO vo) {
-        if (vo == null || !StringUtils.hasText(vo.getAssigneeSno())) {
+        if (vo == null) {
+            return null;
+        }
+        Set<String> need = new LinkedHashSet<>();
+        if (StringUtils.hasText(vo.getAssigneeSno())) {
+            need.add(vo.getAssigneeSno());
+        }
+        if (StringUtils.hasText(vo.getConfirmedBy())) {
+            need.add(vo.getConfirmedBy());
+        }
+        if (need.isEmpty()) {
             return vo;
         }
-        Student s = studentMapper.selectOne(new LambdaQueryWrapper<Student>()
-                .select(Student::getSno, Student::getSname, Student::getNickname, Student::getCollege)
-                .eq(Student::getSno, vo.getAssigneeSno()));
+        Map<String, Student> students = studentMapper.selectBriefBySnos(need).stream()
+                .collect(Collectors.toMap(Student::getSno, s -> s, (a, b) -> a));
+        Student s = vo.getAssigneeSno() == null ? null : students.get(vo.getAssigneeSno());
         if (s != null) {
             vo.setAssigneeName(s.displayName());
             vo.setAssigneeCollege(s.getCollege());
         }
+        Student confirmer = vo.getConfirmedBy() == null ? null : students.get(vo.getConfirmedBy());
+        if (confirmer != null) {
+            vo.setConfirmedByName(confirmer.displayName());
+        }
         return vo;
     }
-    private CollabTaskVO toTaskVO(CollabTask task, String viewerSno) {
+    private CollabTaskVO toTaskVO(CollabTask task, String viewerSno, ExchangeRecord record) {
         CollabTaskVO vo = CollabTaskVO.of(task);
-        if (vo != null && task.getAssigneeSno() != null) {
+        if (vo == null) {
+            return null;
+        }
+        if (task.getAssigneeSno() != null) {
             vo.setMine(task.getAssigneeSno().equals(viewerSno));
         }
+        /*
+         * canConfirm 由服务端算好下发，而不是让前端自己判断。
+         * 规则是"是本次交换的参与方，且不是打卡者" ——
+         * 前端复刻一遍必然会与后端走样，而走样的后果是
+         * 用户看到可点的按钮、点下去却报错。
+         */
+        vo.setCanConfirm(task.getStatus() == TaskStatus.DONE
+                && !CollabTask.isConfirmed(task)
+                && task.canBeConfirmedBy(viewerSno,
+                        record == null ? null : record.getGiverSno(),
+                        record == null ? null : record.getTakerSno()));
         return vo;
     }
 
@@ -808,12 +931,15 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .eq(CollabTask::getRecordId, recordId));
         int total = tasks.size();
         int done = (int) tasks.stream().filter(t -> t.getStatus() == TaskStatus.DONE).count();
+        // 已被协作方确认的任务数（FR-M5-08）—— 与 done 分开统计，见 ProcessSummaryVO 的说明
+        int confirmed = (int) tasks.stream().filter(CollabTask::isConfirmed).count();
         int doing = (int) tasks.stream().filter(t -> t.getStatus() == TaskStatus.DOING).count();
         int todo = (int) tasks.stream().filter(t -> t.getStatus() == TaskStatus.TODO).count();
         int overdue = (int) tasks.stream().filter(CollabTask::isOverdue).count();
 
         vo.setTaskTotal(total);
         vo.setTaskDone(done);
+        vo.setTaskConfirmed(confirmed);
         vo.setTaskDoing(doing);
         vo.setTaskTodo(todo);
         vo.setTaskOverdue(overdue);
