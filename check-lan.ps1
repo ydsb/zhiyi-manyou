@@ -37,6 +37,14 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
+# Shared LAN helpers (IP selection, port/health probes). Dot-sourced so the
+# launcher script (start-all.ps1) and this checker agree on what "the LAN
+# address" means -- they previously had two different ideas, and the mismatch
+# produced three false failures.
+$__lib = Join-Path $PSScriptRoot 'scripts\lib\lan.ps1'
+if (-not (Test-Path -LiteralPath $__lib)) { $__lib = Join-Path $PSScriptRoot 'lib\lan.ps1' }
+if (Test-Path -LiteralPath $__lib) { . $__lib }
+
 # --- ASCII-only helper for Chinese output ------------------------------------
 function New-Cn {
     param([int[]]$Codes)
@@ -103,36 +111,38 @@ Write-Host '=== ZhiYi Manyou / LAN check ===' -ForegroundColor Cyan
 Write-Host ''
 
 # --- 1. local IPv4 -----------------------------------------------------------
+#
+# Do NOT just take the first non-loopback IPv4. Windows keeps several virtual
+# adapters (Wi-Fi Direct "Local Area Connection* N", Hyper-V, VMware, WSL) that
+# can hold a stale static address while DISCONNECTED. On this machine a down
+# Wi-Fi Direct adapter carried 192.168.0.1 and was enumerated before the WLAN
+# adapter, so this check punched 192.168.0.1:5173 -- a dead address -- and
+# reported three failures for a perfectly healthy site. The operator had no way
+# to tell a broken deployment from a broken checker.
+#
+# The reliable discriminator is the default gateway: the interface that
+# actually carries LAN traffic is the one with a gateway. That rule now lives in
+# scripts/lib/lan.ps1 so start-all.ps1 cannot drift away from it.
+$ipInfo = Get-LanIPv4
+$lanIp = $ipInfo.Ip
 $ips = @()
-try {
-    $found = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop
-    $ips = @($found | Where-Object {
-        $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*'
-    } | Select-Object -ExpandProperty IPAddress)
-} catch {
-    # Fallback: parse ipconfig, which works without the NetTCPIP module.
-    $lines = @(ipconfig | Select-String 'IPv4')
-    $ips = @($lines | ForEach-Object {
-        if ($_ -match '(\d+\.\d+\.\d+\.\d+)') { $matches[1] }
-    } | Where-Object { $_ -notlike '127.*' -and $_ -notlike '169.254.*' })
-}
-
-$private = @($ips | Where-Object { $_ -match '^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\.' })
-$lanIp = $null
-if ($private.Count -gt 0) { $lanIp = $private[0] }
-elseif ($ips.Count -gt 0) { $lanIp = $ips[0] }
+if ($lanIp) { $ips = @($lanIp) + @($ipInfo.Others) }
 
 if ($lanIp) {
     Write-Step -Name ("{0}: {1}" -f $tIpAddr, $lanIp) -Ok $true
+    # List the other candidates. If the chosen address is ever wrong again, this
+    # line is what makes the mistake obvious instead of silent.
+    if ($ipInfo.Others.Count -gt 0) {
+        Write-Host ("         other adapters: {0}" -f ($ipInfo.Others -join ', ')) -ForegroundColor DarkGray
+    }
 } else {
     Write-Step -Name ("{0}: <none>" -f $tIpAddr) -Ok $false -Detail $hintNoIp
 }
 
 # --- 2. listening sockets ----------------------------------------------------
-$netstatText = (netstat -ano 2>$null | Select-String 'LISTENING') -join "`n"
-$frontOk = $netstatText -match (":$Port\s")
-$backOk = $netstatText -match (":$BackendPort\s")
-$frontAll = $netstatText -match ("0\.0\.0\.0:$Port\s")
+$frontOk = Test-PortListening -Port $Port
+$backOk = Test-PortListening -Port $BackendPort
+$frontAll = Test-PortBoundAll -Port $Port
 
 $frontDetail = $hintNoFront
 if ($frontAll) { $frontDetail = $hintBoundAll }
@@ -140,11 +150,21 @@ elseif ($frontOk) { $frontDetail = $hintOnlyLocal }
 Write-Step -Name ("{0} {1}" -f $tListen, $Port) -Ok $frontOk -Detail $frontDetail
 
 $backDetail = $hintNoBack
-if ($backOk) { $backDetail = "0.0.0.0:$BackendPort" }
+if ($backOk) {
+    # Show what it is bound to, not a hardcoded guess: whether the backend is
+    # exposed to the LAN is exactly the fact an operator needs here.
+    $backBinds = @(Get-PortBindAddresses -Port $BackendPort)
+    $backDetail = ($backBinds -join ' | ')
+}
 Write-Step -Name ("{0} {1}" -f $tListen, $BackendPort) -Ok $backOk -Detail $backDetail
 
-# --- 3. NLP service (optional, degrades gracefully) --------------------------
-$nlpOk = $netstatText -match ':8901\s'
+# --- 3. NLP service ----------------------------------------------------------
+# Probe /health, NOT netstat. A port match only proves SOMETHING is listening:
+# a service still booting, or an unrelated process squatting the port, both pass
+# a netstat check while the feature is in fact unusable. That mattered here --
+# with NLP down the parse endpoint returns "0 matches" and blames the user's
+# wording, so a false "NLP is fine" sends the operator down the wrong path.
+$nlpOk = Test-HttpOk -Url 'http://127.0.0.1:8901/health' -TimeoutSec 4
 if ($nlpOk) {
     Write-Step -Name ("{0} 8901" -f $tNlp) -Ok $true -Detail $hintNlpOn
 } else {
