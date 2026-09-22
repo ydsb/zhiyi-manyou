@@ -66,32 +66,51 @@ public class SkillGraphServiceImpl implements SkillGraphService {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         List<Long> seedIds = new ArrayList<>(existingIds);
-        // 只有互补协作边参与隐性需求挖掘：先决条件属于学习路径规划（M3），同义已在词典层处理
-        List<Long> neighborIds = ontologyMapper.selectComplementNeighbors(seedIds);
-        if (neighborIds == null || neighborIds.isEmpty()) {
+        // 只有互补协作边参与隐性需求挖掘：先决条件属于学习路径规划（M3），同义已在词典层处理。
+        //
+        // 一次查询同时拿到 邻居 / 连过来的种子 / 权重 三样东西。
+        // 早先的写法是"先查一遍邻居 ID，再对每个种子各查一次 selectNeighbors"——
+        // 两次查询返回同一批边，而且后者还丢掉了 seed 信息，导致无法判断
+        // "某个候选能被几个已命中技能连到"（见下方排序说明）。
+        List<SkillOntologyMapper.ComplementNeighborRow> rows =
+                ontologyMapper.selectComplementNeighborRows(seedIds);
+        if (rows == null || rows.isEmpty()) {
             return;
         }
-        neighborIds = neighborIds.stream().distinct().filter(id -> !existingIds.contains(id)).collect(Collectors.toList());
+
+        // 候选邻居：排除已经命中的技能（不要自我重复）
+        LinkedHashSet<Long> neighborIds = new LinkedHashSet<>();
+        for (SkillOntologyMapper.ComplementNeighborRow row : rows) {
+            if (row.getNeighborId() != null && !existingIds.contains(row.getNeighborId())) {
+                neighborIds.add(row.getNeighborId());
+            }
+        }
         if (neighborIds.isEmpty()) {
             return;
         }
 
-        Map<Long, Skill> neighborSkills = listSkillsByIds(new LinkedHashSet<>(neighborIds)).stream()
+        Map<Long, Skill> neighborSkills = listSkillsByIds(neighborIds).stream()
                 .collect(Collectors.toMap(Skill::getId, s -> s, (a, b) -> a, LinkedHashMap::new));
 
-        // 关系强度用于排序与折扣
+        // 关系强度用于排序与折扣。
+        //
+        // 排序不能只看权重。当 weight 相同时（本图谱里绝大多数互补边都是 0.8/0.9
+        // 这两档，一个种子技能的所有邻居几乎全部并列），"按权重取前 N 个"等价于
+        // 任意取 N 个 —— 实测会出现"前端页面"补出 SolidWorks 三维建模这种噪音。
+        //
+        // 更有效的相关性信号是**被多少个不同的种子技能连到**：能被多个已命中技能
+        // 共同指向的标签，比只被一个种子偶然连到的标签更可能切题。
+        // 因此按 (种子数, 权重, ID) 三级排序，ID 兜底保证结果稳定可复现。
         Map<Long, BigDecimal> weights = new LinkedHashMap<>();
-        for (Long seed : seedIds) {
-            for (SkillOntology edge : ontologyMapper.selectNeighbors(seed)) {
-                if (!SkillRelationType.COMPLEMENT.equals(edge.getRelationType())) {
-                    continue;
-                }
-                Long neighbor = edge.getSrcSkillId().equals(seed) ? edge.getDstSkillId() : edge.getSrcSkillId();
-                if (!neighborSkills.containsKey(neighbor)) {
-                    continue;
-                }
-                weights.merge(neighbor, edge.getWeight() == null ? BigDecimal.ONE : edge.getWeight(), BigDecimal::max);
+        Map<Long, Set<Long>> seedHits = new LinkedHashMap<>();
+        for (SkillOntologyMapper.ComplementNeighborRow row : rows) {
+            Long neighbor = row.getNeighborId();
+            Long seed = row.getSeedId();
+            if (neighbor == null || seed == null || !neighborSkills.containsKey(neighbor)) {
+                continue;
             }
+            weights.merge(neighbor, row.getWeight() == null ? BigDecimal.ONE : row.getWeight(), BigDecimal::max);
+            seedHits.computeIfAbsent(neighbor, k -> new LinkedHashSet<>()).add(seed);
         }
 
         // 基准分：取当前匹配结果的最低分，邻居标签不超过它（避免喧宾夺主）
@@ -102,15 +121,21 @@ public class SkillGraphServiceImpl implements SkillGraphService {
                 .min().orElse(0.7);
 
         List<SkillMatchVO> augmented = weights.entrySet().stream()
-                .sorted(Map.Entry.<Long, BigDecimal>comparingByValue().reversed())
+                .sorted(Comparator
+                        .comparingInt((Map.Entry<Long, BigDecimal> e) ->
+                                seedHits.getOrDefault(e.getKey(), java.util.Collections.emptySet()).size())
+                        .reversed()
+                        .thenComparing(Map.Entry.<Long, BigDecimal>comparingByValue().reversed())
+                        .thenComparing(Map.Entry.comparingByKey()))
                 .limit(MAX_AUGMENT)
                 .map(entry -> {
                     Skill skill = neighborSkills.get(entry.getKey());
                     SkillVO vo = SkillVO.of(skill);
                     double score = Math.min(1.0, baseScore * NEIGHBOR_SCORE_FACTOR
                             * entry.getValue().doubleValue());
-                    String reason = "知识图谱互补协作关联（非字面命中），"
-                            + "来源于跨学科协作中成对出现的技能关系";
+                    int hits = seedHits.getOrDefault(entry.getKey(), java.util.Collections.emptySet()).size();
+                    String reason = "知识图谱互补协作关联（非字面命中）"
+                            + (hits > 1 ? "，与 " + hits + " 个已命中技能均存在协作关系" : "");
                     return SkillMatchVO.of(vo, "RESEARCHING", score, SkillMatchVO.MatchType.GRAPH, reason);
                 })
                 .collect(Collectors.toList());

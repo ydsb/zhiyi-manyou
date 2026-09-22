@@ -110,7 +110,39 @@ watch([keyword, activeL1], () => {
 
 const graphView = computed(() => buildGraphView(relations.value))
 
-const nodeName = (id: number) => graphView.value.nodes.find((n) => n.id === id)?.name ?? String(id)
+/**
+ * 跨学科关系面板默认渲染的边数。
+ *
+ * 图谱补齐后边数从 3 涨到近 600（2026-09-22），全量渲染会往 DOM 里塞
+ * 约 1800 个节点 —— 而 /skills 页此前正是因为一次性渲染 788 张技能卡
+ * （48,569 个 DOM 节点）把「点 exchange 路由卡住」的问题拖出来的。
+ * 这里沿用同一套"先渲染一屏、点按钮继续"的做法，不再重犯。
+ */
+const RELATION_STEP = 60
+const relationLimit = ref(RELATION_STEP)
+
+// 筛选项变化 / 图谱数据变化时回到第一屏，否则会出现"换了筛选却只剩几条"
+watch([relations, activeL1], () => {
+  relationLimit.value = RELATION_STEP
+})
+
+const visibleRelations = computed(() => graphView.value.edges.slice(0, relationLimit.value))
+const hasMoreRelations = computed(() => graphView.value.edges.length > relationLimit.value)
+
+/**
+ * 节点 id -> 名称 的索引。
+ *
+ * 原实现是 `graphView.nodes.find(...)`，即每条边都要线性扫一遍节点数组：
+ * 600 条边 × 约 550 个节点 ≈ 33 万次比较，且这段在模板里逐条调用，
+ * 每次重渲染都重算。改成一次性建立 Map 后是 O(1) 查表。
+ */
+const nodeNameById = computed(() => {
+  const map = new Map<number, string>()
+  for (const n of graphView.value.nodes) map.set(n.id, n.name)
+  return map
+})
+
+const nodeName = (id: number) => nodeNameById.value.get(id) ?? String(id)
 
 const relationTypeTag = (t: string) =>
   t === 'COMPLEMENT' ? 'success' : t === 'PREREQUISITE' ? 'warning' : 'info'
@@ -368,7 +400,7 @@ onMounted(() => {
           </div>
 
           <div class="rel-list">
-            <div v-for="e in graphView.edges" :key="`${e.source}-${e.target}`" class="rel">
+            <div v-for="e in visibleRelations" :key="`${e.source}-${e.target}`" class="rel">
               <div class="rel__edge">
                 <span class="rel__node">{{ nodeName(e.source) }}</span>
                 <span class="rel__arrow">{{ e.type === 'PREREQUISITE' ? '→' : '↔' }}</span>
@@ -380,6 +412,12 @@ onMounted(() => {
               </div>
             </div>
             <el-empty v-if="graphView.edges.length === 0" description="暂无图谱关系" :image-size="60" />
+          </div>
+
+          <div v-if="hasMoreRelations" class="rel-more">
+            <el-button size="small" text type="primary" @click="relationLimit += RELATION_STEP">
+              展开更多（已显示 {{ visibleRelations.length }} / {{ graphView.edges.length }} 条）
+            </el-button>
           </div>
 
           <p class="panel__foot">

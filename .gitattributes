@@ -6,6 +6,13 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
+# 生成的迁移 SQL 标记为二进制：内容里含大量中文技能名与备注，
+# 换行符转换只会制造无意义的大 diff（10-ontology-graph.sql 单文件 11,000+ 行）。
+# 声明为 binary 后 git 不做任何规范化，文件内容在本机与同学机器上逐字节一致。
+# 注意：无论仓库里存的是什么，都应当用 --default-character-set=utf8mb4 导入，
+# 否则中文会乱码 —— 详见 scripts/README.md。
+sql/10-ontology-graph.sql binary
+
 # 二进制文件不做换行转换
 *.png binary
 *.jpg binary
