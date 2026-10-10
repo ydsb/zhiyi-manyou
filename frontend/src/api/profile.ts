@@ -205,17 +205,17 @@ function buildReportHtml(r: AbilityReport): string {
   @page { size: A4; margin: 18mm 16mm; }
   * { box-sizing: border-box; }
   body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; color: #1f2d33; margin: 0; font-size: 12px; line-height: 1.7; }
-  .head { border-bottom: 3px solid #2f7d8f; padding-bottom: 10px; margin-bottom: 16px; }
+  .head { border-bottom: 3px solid #237c78; padding-bottom: 10px; margin-bottom: 16px; }
   h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: 1px; }
   .sub { color: #5c7178; font-size: 11px; }
   .meta { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 10px; font-size: 11.5px; }
   .meta b { color: #1f2d33; }
-  h2 { font-size: 13.5px; margin: 18px 0 8px; padding-left: 8px; border-left: 3px solid #e08b3c; }
+  h2 { font-size: 13.5px; margin: 18px 0 8px; padding-left: 8px; border-left: 3px solid #e59b45; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th, td { border: 1px solid #cfdde1; padding: 5px 7px; text-align: left; vertical-align: top; }
   th { background: #f1f7f9; font-weight: 600; }
   td.num, th.num { text-align: right; }
-  td.score { text-align: right; font-weight: 700; color: #2f7d8f; }
+  td.score { text-align: right; font-weight: 700; color: #237c78; }
   td.dim { width: 90px; font-weight: 600; }
   td.ev { color: #5c7178; font-size: 10.5px; }
   .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; }
@@ -223,12 +223,12 @@ function buildReportHtml(r: AbilityReport): string {
   .kpi .v { font-size: 18px; font-weight: 700; color: #1f5f6e; }
   .kpi .l { font-size: 10.5px; color: #5c7178; }
   .box { border: 1px solid #cfdde1; border-radius: 6px; padding: 10px 12px; background: #fbfdfe; }
-  .verify { margin-top: 18px; border: 2px dashed #2f7d8f; border-radius: 8px; padding: 12px 14px; background: #f4fafb; }
+  .verify { margin-top: 18px; border: 2px dashed #237c78; border-radius: 8px; padding: 12px 14px; background: #f1faf8; }
   .verify .code { font-family: Consolas, monospace; font-size: 20px; font-weight: 700; color: #1f5f6e; letter-spacing: 3px; }
   .foot { margin-top: 16px; padding-top: 10px; border-top: 1px solid #cfdde1; color: #7b8f96; font-size: 10px; line-height: 1.6; }
   ul { margin: 4px 0 0; padding-left: 18px; }
   .toolbar { text-align: right; margin-bottom: 8px; }
-  .toolbar button { padding: 6px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; border: 1px solid #2f7d8f; background: #2f7d8f; color: #fff; }
+  .toolbar button { padding: 6px 16px; font-size: 13px; cursor: pointer; border-radius: 8px; border: 1px solid #237c78; background: #237c78; color: #fff; }
   @media print { .toolbar { display: none; } }
 </style>
 </head>

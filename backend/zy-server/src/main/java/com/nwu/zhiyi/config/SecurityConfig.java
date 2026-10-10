@@ -78,9 +78,6 @@ public class SecurityConfig {
             "/api/skills/tree",
             "/api/skills/search",
             "/api/ontology/**",
-            // 供需集市：卡片列表与详情匿名可浏览；发布/修改/邀约等写操作需登录
-            "/api/demands",
-            "/api/demands/*",
             "/api/meta/**",
             /*
              * 凭证验真（FR-M6-04）：匿名开放。
@@ -143,6 +140,8 @@ public class SecurityConfig {
                                 "/api/demands/mine",
                                 "/api/demands/interests/received",
                                 "/api/demands/interests/sent").authenticated()
+                        // 集市浏览匿名开放；写操作保持默认 authenticated 规则
+                        .requestMatchers(HttpMethod.GET, "/api/demands", "/api/demands/*").permitAll()
                         // 公开接口
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         // 其余接口需登录

@@ -53,7 +53,7 @@ public class LocalFileStorage implements FileStorage {
 
     private final Path root;
 
-    public LocalFileStorage(@Value("${zhiyi.storage.local-root:G:/DEV/zhiyi-uploads}") String rootDir) {
+    public LocalFileStorage(@Value("${zhiyi.storage.local-root:./data/uploads}") String rootDir) {
         this.root = Paths.get(rootDir).toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.root);

@@ -676,8 +676,8 @@ onMounted(async () => {
 
           <div class="starmap">
             <svg viewBox="0 0 380 340" class="starmap__svg">
-              <circle cx="190" cy="170" r="26" fill="rgba(47,125,143,0.12)" stroke="#2f7d8f" stroke-width="1.5" />
-              <text x="190" y="175" text-anchor="middle" font-size="12" fill="#235f6e">
+              <circle cx="190" cy="170" r="26" fill="rgba(35,124,120,0.12)" stroke="#237c78" stroke-width="1.5" />
+              <text x="190" y="175" text-anchor="middle" font-size="12" fill="#165b5c">
                 {{ auth.displayName.slice(0, 3) }}
               </text>
 
@@ -691,7 +691,7 @@ onMounted(async () => {
               <g v-for="(n, i) in starNodes" :key="'n' + n.id + '-' + i">
                 <circle
                   :cx="n.x" :cy="n.y" :r="n.size"
-                  :fill="n.kind === 'skilled' ? '#2f7d8f' : n.kind === 'needed' ? '#e08b3c' : '#7c8d95'"
+                  :fill="n.kind === 'skilled' ? '#237c78' : n.kind === 'needed' ? '#e59b45' : '#78909a'"
                 />
                 <text
                   :x="n.x" :y="n.y - n.size - 5"
@@ -920,12 +920,12 @@ onMounted(async () => {
 }
 
 .dot--skilled {
-  background: #2f7d8f;
+  background: #237c78;
 }
 .dot--researching {
   background: #7c8d95;
 }
 .dot--needed {
-  background: #e08b3c;
+  background: #e59b45;
 }
 </style>

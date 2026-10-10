@@ -1187,7 +1187,7 @@ onMounted(load)
   align-self: flex-start;
   padding: 8px 12px;
   border-radius: 10px;
-  background: #f4f7f8;
+  background: #f3f8f7;
 }
 
 .bubble--mine {

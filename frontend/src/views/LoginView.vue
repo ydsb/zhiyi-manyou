@@ -208,6 +208,7 @@ async function handleRegister() {
 .login {
   display: flex;
   min-height: 100vh;
+  background: #f3f8f7;
 }
 
 /* ------------------------------ 品牌区 ------------------------------ */
@@ -216,15 +217,16 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px;
+  padding: 64px clamp(32px, 7vw, 110px);
   background:
-    radial-gradient(1200px 600px at 15% 10%, rgba(224, 139, 60, 0.22), transparent 60%),
-    linear-gradient(150deg, #235f6e 0%, #2f7d8f 55%, #3f94a5 100%);
+    radial-gradient(700px 420px at 12% 12%, rgba(229, 155, 69, 0.26), transparent 62%),
+    radial-gradient(600px 520px at 92% 86%, rgba(71, 166, 155, 0.32), transparent 60%),
+    linear-gradient(150deg, #155b5c 0%, #237c78 58%, #53a79c 100%);
   color: #fff;
 }
 
 .brand-inner {
-  max-width: 480px;
+  max-width: 560px;
 }
 
 .brand-logo {
@@ -242,7 +244,7 @@ async function handleRegister() {
 
 .brand-title {
   margin: 0 0 6px;
-  font-size: 34px;
+  font-size: clamp(34px, 4vw, 52px);
   letter-spacing: 0.06em;
 }
 
@@ -292,22 +294,31 @@ async function handleRegister() {
 
 /* ------------------------------ 表单区 ------------------------------ */
 .login__form {
-  flex: 0 0 460px;
+  flex: 0 0 500px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
-  background: var(--zy-bg-page);
+  padding: 56px clamp(28px, 5vw, 72px);
+  background:
+    radial-gradient(500px 300px at 80% 12%, rgba(71, 166, 155, 0.1), transparent 70%),
+    var(--zy-bg-page);
 }
 
 .form-card {
   width: 100%;
-  max-width: 360px;
+  max-width: 390px;
+  padding: 30px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(219, 233, 231, 0.95);
+  border-radius: 22px;
+  box-shadow: var(--zy-shadow-lg);
+  backdrop-filter: blur(12px);
 }
 
 .form-title {
   margin: 0 0 4px;
-  font-size: 24px;
+  font-size: 28px;
+  letter-spacing: -0.03em;
 }
 
 .form-sub {

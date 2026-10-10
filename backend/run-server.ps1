@@ -30,6 +30,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Never launch the application with the public/empty JWT fallback. The Java
+# application performs the same check, but failing here gives a clearer error
+# before a build or database probe starts.
+$jwtSecret = $env:ZHIYI_JWT_SECRET
+if ([string]::IsNullOrWhiteSpace($jwtSecret) -or
+    ([System.Text.Encoding]::UTF8.GetByteCount($jwtSecret) -lt 32)) {
+    throw 'ZHIYI_JWT_SECRET is required and must contain at least 32 UTF-8 bytes.'
+}
+
 $root = $PSScriptRoot
 $jar = Join-Path $root 'zy-server\target\zy-server.jar'
 
@@ -73,16 +82,6 @@ if (-not $mysqlFound) {
     } else {
         Write-Warning "database zhiyi_manyou not found or not reachable. Import sql/01-schema.sql first (see README)."
     }
-}
-Write-Host "[CHECK] MySQL ok, database zhiyi_manyou has $probe tables" -ForegroundColor Green
-        } else {
-            Write-Warning "database zhiyi_manyou not found. Run: mysql -uroot -p < `"$root\sql\01-schema.sql`""
-        }
-    } catch {
-        Write-Warning "database pre-check skipped: $($_.Exception.Message)"
-    }
-} else {
-    Write-Warning "mysql client not found ($mysql), skipping database pre-check."
 }
 
 # ---------------------------------------------------------------------------

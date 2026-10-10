@@ -1,16 +1,16 @@
 /* =============================================================================
-   知驿·漫游 —— 全局样式与设计令牌
-   视觉关键词：像素/体素风格基础方块、跨学科星图、能力可视化
+   知驿·漫游 —— 清爽校园科技感设计系统
+   视觉关键词：晨光、纸张、校园地图与轻量数据界面
    ============================================================================= */
 
 :root {
-  /* 主色：青蓝（驿站的指引灯） */
-  --zy-primary: #2f7d8f;
-  --zy-primary-light: #4a9dae;
-  --zy-primary-dark: #235f6e;
+  /* 主色：清透的校园青绿 */
+  --zy-primary: #237c78;
+  --zy-primary-light: #47a69b;
+  --zy-primary-dark: #165b5c;
 
   /* 强调色：暖橙（技能交换的双向箭头） */
-  --zy-accent: #e08b3c;
+  --zy-accent: #e59b45;
 
   /* 学科维度色（用于能力雷达图与标签） */
   --zy-dim-engineering: #3f7cb8;
@@ -19,26 +19,37 @@
   --zy-dim-art: #a06cb8;
   --zy-dim-collab: #d4a72c;
 
-  --zy-text-primary: #1f2d33;
-  --zy-text-regular: #46575f;
-  --zy-text-secondary: #7c8d95;
-  --zy-text-placeholder: #a9b6bc;
+  --zy-text-primary: #173b4a;
+  --zy-text-regular: #46616c;
+  --zy-text-secondary: #78909a;
+  --zy-text-placeholder: #a9bbc0;
 
-  --zy-bg-page: #f4f7f8;
+  --zy-bg-page: #f3f8f7;
   --zy-bg-card: #ffffff;
-  --zy-border: #e2e9ec;
-  --zy-border-light: #eef3f5;
+  --zy-border: #dbe9e7;
+  --zy-border-light: #eaf2f1;
 
-  --zy-radius-sm: 4px;
-  --zy-radius: 8px;
-  --zy-radius-lg: 14px;
+  --zy-radius-sm: 8px;
+  --zy-radius: 14px;
+  --zy-radius-lg: 22px;
 
-  --zy-shadow-sm: 0 1px 3px rgba(31, 45, 51, 0.06);
-  --zy-shadow: 0 4px 16px rgba(31, 45, 51, 0.08);
-  --zy-shadow-lg: 0 10px 32px rgba(31, 45, 51, 0.12);
+  --zy-shadow-sm: 0 2px 8px rgba(24, 71, 77, 0.06);
+  --zy-shadow: 0 10px 24px rgba(24, 71, 77, 0.08);
+  --zy-shadow-lg: 0 20px 48px rgba(24, 71, 77, 0.13);
 
-  /* 像素风：用无圆角 + 硬阴影表达"基础方块" */
-  --zy-pixel-shadow: 3px 3px 0 rgba(47, 125, 143, 0.18);
+  /* 轻量像素质感，保留项目辨识度但不压过内容 */
+  --zy-pixel-shadow: 3px 3px 0 rgba(35, 124, 120, 0.16);
+
+  --el-color-primary: var(--zy-primary);
+  --el-color-primary-light-3: #65b7ac;
+  --el-color-primary-light-5: #94cec5;
+  --el-color-primary-light-7: #c0e1dc;
+  --el-color-primary-light-8: #d9eeea;
+  --el-color-primary-light-9: #eff8f6;
+  --el-color-primary-dark-2: var(--zy-primary-dark);
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-box-shadow-light: var(--zy-shadow);
 }
 
 * {
@@ -58,7 +69,10 @@ body {
   font-size: 14px;
   line-height: 1.6;
   color: var(--zy-text-primary);
-  background: var(--zy-bg-page);
+  background:
+    radial-gradient(900px 520px at 100% -10%, rgba(71, 166, 155, 0.12), transparent 60%),
+    radial-gradient(720px 440px at -10% 12%, rgba(229, 155, 69, 0.08), transparent 58%),
+    var(--zy-bg-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -70,6 +84,75 @@ a {
 
 a:hover {
   color: var(--zy-primary-light);
+}
+
+button,
+.el-button,
+.el-input__wrapper,
+.el-select__wrapper,
+.el-card,
+.el-dialog,
+.el-drawer {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.el-button--primary {
+  border: 0;
+  background: linear-gradient(135deg, var(--zy-primary-light), var(--zy-primary));
+  box-shadow: 0 7px 16px rgba(35, 124, 120, 0.2);
+}
+
+.el-button--primary:hover,
+.el-button--primary:focus-visible {
+  background: linear-gradient(135deg, #58b5a8, var(--zy-primary-dark));
+  box-shadow: 0 9px 20px rgba(35, 124, 120, 0.25);
+  transform: translateY(-1px);
+}
+
+.el-button.is-plain {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.el-input__wrapper,
+.el-select__wrapper {
+  min-height: 38px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 0 1px var(--zy-border) inset, 0 2px 5px rgba(24, 71, 77, 0.03);
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--zy-primary-light) inset, 0 3px 8px rgba(24, 71, 77, 0.06);
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--zy-primary) inset, 0 0 0 3px rgba(71, 166, 155, 0.14);
+}
+
+.el-dialog,
+.el-drawer {
+  border: 1px solid var(--zy-border);
+  border-radius: var(--zy-radius-lg);
+  overflow: hidden;
+}
+
+.el-dialog__header,
+.el-drawer__header {
+  margin: 0;
+  padding: 22px 24px 16px;
+  background: linear-gradient(135deg, #ffffff, #f3faf8);
+}
+
+.el-dialog__body,
+.el-drawer__body {
+  padding: 18px 24px 24px;
+}
+
+.el-popover.el-popper {
+  border: 1px solid var(--zy-border);
+  border-radius: var(--zy-radius);
+  box-shadow: var(--zy-shadow-lg);
 }
 
 ::-webkit-scrollbar {
@@ -89,22 +172,24 @@ a:hover {
 /* ------------------------------ 通用布局工具类 ------------------------------ */
 
 .zy-page {
-  padding: 20px 24px 32px;
+  position: relative;
+  padding: 28px 32px 42px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .zy-page-title {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--zy-text-primary);
 }
 
 .zy-page-subtitle {
-  margin: 0 0 20px;
+  margin: 0 0 24px;
   color: var(--zy-text-secondary);
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .zy-card {
@@ -112,6 +197,11 @@ a:hover {
   border: 1px solid var(--zy-border);
   border-radius: var(--zy-radius);
   box-shadow: var(--zy-shadow-sm);
+}
+
+.zy-card:hover {
+  border-color: rgba(71, 166, 155, 0.5);
+  box-shadow: var(--zy-shadow);
 }
 
 .zy-placeholder {
@@ -142,6 +232,28 @@ a:hover {
   font-size: 13px;
 }
 
+.el-tag {
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.el-tabs__item {
+  font-weight: 600;
+}
+
+.el-table {
+  --el-table-header-bg-color: #f3faf8;
+  --el-table-row-hover-bg-color: #f6fbfa;
+  --el-table-border-color: var(--zy-border-light);
+  border-radius: var(--zy-radius);
+  overflow: hidden;
+}
+
+.el-pagination {
+  --el-pagination-button-bg-color: #ffffff;
+  --el-pagination-hover-color: var(--zy-primary);
+}
+
 .zy-tag-engineering {
   --el-tag-bg-color: rgba(63, 124, 184, 0.12);
   --el-tag-text-color: var(--zy-dim-engineering);
@@ -155,4 +267,10 @@ a:hover {
   height: 10px;
   border-radius: 1px;
   box-shadow: var(--zy-pixel-shadow);
+}
+
+@media (max-width: 900px) {
+  .zy-page {
+    padding: 22px 18px 32px;
+  }
 }

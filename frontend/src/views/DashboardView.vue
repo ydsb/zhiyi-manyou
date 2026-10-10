@@ -108,7 +108,7 @@ function renderChart() {
         radius: '66%',
         splitNumber: 4,
         axisName: { color: '#46575f', fontSize: 12 },
-        splitLine: { lineStyle: { color: '#e2e9ec' } },
+        splitLine: { lineStyle: { color: '#dbe9e7' } },
         splitArea: { areaStyle: { color: ['rgba(244,247,248,0.6)', 'rgba(255,255,255,0.9)'] } },
         indicator: dims.map((d) => ({ name: d.label, max: 100 }))
       },
@@ -116,9 +116,9 @@ function renderChart() {
         {
           type: 'radar',
           symbolSize: 6,
-          areaStyle: { color: 'rgba(47,125,143,0.22)' },
-          lineStyle: { color: '#2f7d8f', width: 2 },
-          itemStyle: { color: '#2f7d8f' },
+          areaStyle: { color: 'rgba(35,124,120,0.20)' },
+          lineStyle: { color: '#237c78', width: 2 },
+          itemStyle: { color: '#237c78' },
           data: [
             {
               // 无数据的维度用 null，ECharts 会把该顶点拉向中心 ——
@@ -142,7 +142,7 @@ function renderTrend() {
     trendChart = echarts.init(trendEl.value)
   }
   const g = growth.value
-  const colors = ['#2f7d8f', '#e08b3c', '#7a9e5b', '#a06c9e', '#5b7fbd']
+  const colors = ['#237c78', '#e59b45', '#6f9e68', '#9a72b0', '#537bb2']
   const series = Object.keys(g.series).map((key, i) => ({
     name: g.dimensionLabels[key] ?? key,
     type: 'line',

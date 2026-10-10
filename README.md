@@ -9,7 +9,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42B883)](https://vuejs.org/)
 [![MyBatis-Plus](https://img.shields.io/badge/MyBatis--Plus-3.5.7-red)](https://baomidou.com/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-178%20passed-success)](#测试)
+[![Tests](https://img.shields.io/badge/tests-208%20backend%20%2B%206%20frontend%20%2B%2047%20NLP-success)](#测试)
 
 ---
 
@@ -141,6 +141,15 @@ $env:ZHIYI_DB_USER     = 'root'
 $env:ZHIYI_JWT_SECRET  = '生产环境请务必替换为足够长的随机串'
 ```
 
+`ZHIYI_JWT_SECRET` 必须显式配置为至少 32 字节的随机值；后端和启动脚本都会在
+缺失或长度不足时拒绝启动。可用 PowerShell 生成随机值并安全保存到部署机环境配置：
+
+```powershell
+$bytes = [byte[]]::new(48)
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$env:ZHIYI_JWT_SECRET = [Convert]::ToBase64String($bytes)
+```
+
 ```bash
 # Linux / macOS
 export ZHIYI_DB_PASSWORD='你的数据库密码'
@@ -157,7 +166,7 @@ zy-run          # 启动（端口 8080）
 # 或一步启动（含数据库预检与可选重新构建）
 powershell -ExecutionPolicy Bypass -File backend\run-server.ps1
 
-# 冒烟测试（39 项接口检查）
+# 冒烟测试（41 项接口检查）
 powershell -ExecutionPolicy Bypass -File backend\smoke-test.ps1
 ```
 
@@ -203,7 +212,7 @@ zhiyi-manyou-repo/
 │   ├── pom.xml                    父 POM（统一依赖与版本）
 │   ├── build-env.ps1              构建环境（zy-build / zy-run / zy-test）
 │   ├── run-server.ps1             启动脚本（含数据库预检）
-│   ├── smoke-test.ps1             39 项接口冒烟测试
+│   ├── smoke-test.ps1             41 项接口冒烟测试
 │   ├── zy-common/                 公共模块：统一响应、错误码、枚举、工具
 │   │   └── src/main/java/com/nwu/zhiyi/common/
 │   │       ├── api/               ApiResponse / ErrorCode / PageResult
@@ -259,16 +268,22 @@ zhiyi-manyou-repo/
 ## 测试
 
 ```powershell
-# 后端单元测试（136 项）
+# 后端单元测试（208 项）
 . .\backend\build-env.ps1
-zy-build
+Push-Location backend
+mvn test
+Pop-Location
 
-# 接口冒烟测试（39 项，需服务已启动）
+# 接口冒烟测试（41 项，需服务已启动）
 powershell -ExecutionPolicy Bypass -File backend\smoke-test.ps1
 
-# 前端类型检查
-cd frontend
-npx vue-tsc --noEmit
+# 前端单元测试、类型检查与生产构建
+Push-Location frontend
+npm ci
+npm test
+npm run typecheck
+npm run build
+Pop-Location
 ```
 
 | 测试集 | 数量 | 覆盖内容 |
@@ -286,8 +301,12 @@ npx vue-tsc --noEmit
 | `CollabViewTest` | 11 | 协作任务/文件/时间轴视图转换 |
 | `DemandContentAuditorTest` | 9 | 需求卡片内容审核 |
 | `EvaluationContentAuditorTest` | 9 | 互评内容审核（低分强制说明） |
-| **合计（Java）** | **178** | 全部通过 |
-| `test_nlp.py`（Python） | 44 | **NLP 分词 / TF-IDF / SVD / 向量检索 / 图谱加成 / 算法边界** |
+| **后端单元测试（Java）** | **208** | 全部通过 |
+| **接口冒烟测试（PowerShell）** | **41** | 需服务已启动 |
+| `guard.test.ts`（前端） | **6** | 公开路由、登录跳转、首次引导、管理员权限、刷新后加载用户 |
+| `test_nlp.py`（Python） | **47** | **NLP 分词 / TF-IDF / SVD / 向量检索 / 图谱加成 / 算法边界** |
+
+GitHub Actions 会在推送到 `main` 和每个 Pull Request 上运行后端、前端与 NLP 测试；前端同时执行类型检查和生产构建。
 
 ### 验收项验证状态
 
@@ -576,7 +595,7 @@ JSON Schema 可直接喂给 LLM 的函数调用协议：
 | 匹配智能度 | 已实现语义向量检索（LSA）；但**非预训练模型**，依赖训练语料的词共现统计 | 环境允许时换 sentence-transformers，接口已预留 |
 | 向量检索规模 | numpy 精确检索，规模上万后线性变慢 | 超万级切 LSH（已实现）或 ES HNSW |
 | 图谱与向量的结合 | 图谱在检索阶段加成（已验证有效）；**向量无法替代图谱召回**（无共享词时正交） | 维持多路召回，短期不指望单路覆盖 |
-| 训练语料规模 | 技能标签仅 14 条（需求要求 ≥1000）| 需按《技能本体扩充》补齐词表 |
+| 训练语料规模 | 技能标签 788 条（目标 ≥1000）| 继续补齐技能本体 |
 | 技能抽取 | 基于规则与词典，未训练模型 | 语料积累后评估是否需要模型 |
 | 成长周报生成 | 模板化自然语言，非大模型生成 | 视需要接入 |
 | 报告导出 | 浏览器打印为 PDF（前端排版） | 如需服务端生成需解决中文字体授权 |

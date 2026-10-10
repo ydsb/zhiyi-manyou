@@ -341,19 +341,10 @@ function Invoke-Start {
     if (-not $env:ZHIYI_DB_PASSWORD) { Write-Bad 'ZHIYI_DB_PASSWORD is empty'; exit 1 }
     Write-Ok 'ZHIYI_DB_PASSWORD set (not printed)'
 
-    # The JWT default in application.yml is a PUBLIC placeholder that is already
-    # in the git history. Anyone who knows it can forge a token for any account,
-    # admin included, so refuse to start with it unless told twice.
-    $jwtDefault = 'zhiyi-manyou-dev-secret-key-please-change-in-production-2026'
-    if (-not $env:ZHIYI_JWT_SECRET) {
-        Write-WarnLine 'ZHIYI_JWT_SECRET not set - the backend would fall back to the'
-        Write-Note  'public placeholder in application.yml. Fine on a LAN, NOT fine'
-        Write-Note  'on the internet: a known secret means forgeable admin tokens.'
-        $env:ZHIYI_JWT_SECRET = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
-        Write-Ok 'generated a random JWT secret for THIS run (tokens die with it)'
-    } elseif ($env:ZHIYI_JWT_SECRET -eq $jwtDefault) {
-        Write-Bad 'ZHIYI_JWT_SECRET is still the public placeholder - refusing to start'
-        Write-Note 'set a real random value: $env:ZHIYI_JWT_SECRET = [guid]::NewGuid().ToString("N")'
+    if ([string]::IsNullOrWhiteSpace($env:ZHIYI_JWT_SECRET) -or
+        [System.Text.Encoding]::UTF8.GetByteCount($env:ZHIYI_JWT_SECRET) -lt 32) {
+        Write-Bad 'ZHIYI_JWT_SECRET is required and must contain at least 32 UTF-8 bytes'
+        Write-Note 'set a persistent random secret before starting the services'
         exit 1
     } else {
         Write-Ok 'ZHIYI_JWT_SECRET set (not printed)'

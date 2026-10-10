@@ -7,7 +7,6 @@ import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -26,7 +25,6 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class JwtTokenProvider {
 
     public static final String CLAIM_ROLE = "role";
@@ -38,20 +36,23 @@ public class JwtTokenProvider {
 
     private volatile SecretKey cachedKey;
 
+    public JwtTokenProvider(JwtProperties jwtProperties) {
+        this.jwtProperties = jwtProperties;
+        String secret = jwtProperties.getSecret();
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "ZHIYI_JWT_SECRET must be configured with at least 32 UTF-8 bytes; refusing to start with an unsafe JWT key");
+        }
+    }
+
     /**
-     * 获取签名密钥。密钥不足 32 字节时补零，保证 HS256 可用。
+     * 获取已在启动时校验过长度的签名密钥。
      */
     private SecretKey signingKey() {
         if (cachedKey == null) {
             synchronized (this) {
                 if (cachedKey == null) {
-                    byte[] raw = jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8);
-                    if (raw.length < 32) {
-                        byte[] padded = new byte[32];
-                        System.arraycopy(raw, 0, padded, 0, raw.length);
-                        raw = padded;
-                    }
-                    cachedKey = Keys.hmacShaKeyFor(raw);
+                    cachedKey = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
                 }
             }
         }

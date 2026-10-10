@@ -95,11 +95,18 @@ public class DemandCardAssembler {
         // ---------- 交换意向 ----------
         Map<Long, List<DemandInterest>> interestMap = new HashMap<>();
         if (withInterest) {
-            List<Long> demandIds = demands.stream().map(Demand::getId).collect(Collectors.toList());
-            List<DemandInterest> all = interestMapper.selectList(
-                    new LambdaQueryWrapper<DemandInterest>().in(DemandInterest::getDemandId, demandIds)
-                            .orderByDesc(DemandInterest::getCreatedAt));
-            all.forEach(i -> interestMap.computeIfAbsent(i.getDemandId(), k -> new ArrayList<>()).add(i));
+            // 只有需求发布人能看到邀约明细；查询层同步收窄范围，避免匿名详情
+            // 或他人的公开卡片触发无意义的身份与留言数据读取。
+            List<Long> ownedDemandIds = demands.stream()
+                    .filter(d -> d.isOwnedBy(viewerSno))
+                    .map(Demand::getId)
+                    .collect(Collectors.toList());
+            if (!ownedDemandIds.isEmpty()) {
+                List<DemandInterest> all = interestMapper.selectList(
+                        new LambdaQueryWrapper<DemandInterest>().in(DemandInterest::getDemandId, ownedDemandIds)
+                                .orderByDesc(DemandInterest::getCreatedAt));
+                all.forEach(i -> interestMap.computeIfAbsent(i.getDemandId(), k -> new ArrayList<>()).add(i));
+            }
         }
 
         Student viewer = viewerSno == null ? null : ownerMap.get(viewerSno);
@@ -144,7 +151,9 @@ public class DemandCardAssembler {
             vo.setCreatedAt(demand.getCreatedAt());
             vo.setExpireAt(demand.getExpireAt());
 
-            if (withInterest) {
+            // 邀约明细包含申请人的身份与留言，只能返回给需求发布人。
+            // 前端是否展示不构成访问控制，公开详情请求也会经过此装配器。
+            if (withInterest && demand.isOwnedBy(viewerSno)) {
                 List<DemandInterestVO> interestVOs = interestMap.getOrDefault(demand.getId(), List.of())
                         .stream().map(DemandInterestVO::of).collect(Collectors.toList());
                 // 补齐申请人昵称

@@ -87,8 +87,8 @@ mybatis-plus:
 # -----------------------------------------------------------------------------
 zhiyi:
   jwt:
-    # 生产环境请通过环境变量 ZHIYI_JWT_SECRET 覆盖
-    secret: ${ZHIYI_JWT_SECRET:zhiyi-manyou-dev-secret-key-please-change-in-production-2026}
+    # 必须通过环境变量提供至少 32 字节的随机密钥；缺失或过短时应用拒绝启动。
+    secret: ${ZHIYI_JWT_SECRET:}
     # 访问令牌有效期（分钟）
     expire-minutes: 720
     # 刷新令牌有效期（分钟）
@@ -122,7 +122,7 @@ zhiyi:
     # LOCAL 本地磁盘 / OSS 对象存储（预留）
     type: LOCAL
     # 本地存储根目录（生产环境请指向独立数据盘）
-    local-root: ${ZHIYI_STORAGE_ROOT:G:/DEV/zhiyi-uploads}
+    local-root: ${ZHIYI_STORAGE_ROOT:${user.dir}/data/uploads}
 
   # ---------------------------------------------------------------------------
   # 双向互评（M6）
