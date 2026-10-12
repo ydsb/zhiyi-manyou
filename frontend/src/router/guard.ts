@@ -31,6 +31,11 @@ export function createAuthGuard({ auth, setTitle, warn }: GuardDependencies) {
       } catch {
         // The request interceptor handles expired credentials.
       }
+      // A failed refresh can clear the session while the guard is awaiting
+      // /auth/me. Re-apply the protected-route rule using the fresh state.
+      if (!auth.isLoggedIn && requiresAuth && !isPublic) {
+        return { name: 'Login', query: { redirect: to.fullPath } }
+      }
     }
 
     if (auth.isLoggedIn && auth.firstLogin && to.name !== 'Onboarding') {

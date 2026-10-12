@@ -27,8 +27,8 @@ export const authApi = {
   },
 
   /** 退出登录（POST /api/auth/logout） */
-  logout() {
-    return request<void>({ url: '/auth/logout', method: 'post' })
+  logout(refreshToken?: string | null) {
+    return request<void>({ url: '/auth/logout', method: 'post', data: { refreshToken } })
   }
 }
 

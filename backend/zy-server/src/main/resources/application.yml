@@ -35,6 +35,14 @@ spring:
       max-lifetime: 1800000
       connection-timeout: 30000
 
+  # Redis 仅在 ZHIYI_CACHE_TYPE=redis 时被缓存管理器使用
+  data:
+    redis:
+      host: ${ZHIYI_REDIS_HOST:localhost}
+      port: ${ZHIYI_REDIS_PORT:6379}
+      password: ${ZHIYI_REDIS_PASSWORD:}
+      database: ${ZHIYI_REDIS_DATABASE:0}
+
   # 初始化脚本由 DBA 或部署脚本执行，应用不自动执行 DDL
   sql:
     init:
@@ -86,6 +94,18 @@ mybatis-plus:
 # 知驿·漫游 业务配置
 # -----------------------------------------------------------------------------
 zhiyi:
+  cache:
+    # LOCAL 不依赖外部服务；多实例部署时改为 REDIS 并配置 spring.data.redis 连接信息
+    type: ${ZHIYI_CACHE_TYPE:local}
+  security:
+    # Redis 模式将限流、登录失败锁定与 JWT 撤销状态共享到各应用实例；默认 LOCAL 便于单机开发。
+    state-store: ${ZHIYI_SECURITY_STATE_STORE:local}
+  notification:
+    # SYNC 保持兼容；执行 sql/11-migration-notification-outbox.sql 后可设为 OUTBOX。
+    delivery: ${ZHIYI_NOTIFICATION_DELIVERY:sync}
+    outbox:
+      poll-ms: ${ZHIYI_NOTIFICATION_OUTBOX_POLL_MS:1000}
+      max-attempts: ${ZHIYI_NOTIFICATION_OUTBOX_MAX_ATTEMPTS:8}
   jwt:
     # 必须通过环境变量提供至少 32 字节的随机密钥；缺失或过短时应用拒绝启动。
     secret: ${ZHIYI_JWT_SECRET:}
@@ -115,14 +135,21 @@ zhiyi:
   # ---------------------------------------------------------------------------
   # 文件存储（FR-M5-03 / FR-M9-06）
   #
-  # 开发与试点阶段使用本地磁盘；采购云服务后实现 OssFileStorage 并切换 storage-type，
-  # 业务代码无需改动。注意：多实例部署时本地存储不共享，需切对象存储。
+  # 开发与试点阶段使用本地磁盘；多实例部署可切换到 S3/MinIO，业务代码无需改动。
+  # 注意：切换前须停写并迁移历史对象，storage_type 与当前适配器保持一致。
   # ---------------------------------------------------------------------------
   storage:
-    # LOCAL 本地磁盘 / OSS 对象存储（预留）
-    type: LOCAL
+    # LOCAL 本地磁盘 / S3 兼容对象存储（AWS S3、MinIO、兼容 OSS 网关）
+    type: ${ZHIYI_STORAGE_TYPE:LOCAL}
     # 本地存储根目录（生产环境请指向独立数据盘）
     local-root: ${ZHIYI_STORAGE_ROOT:${user.dir}/data/uploads}
+    s3:
+      endpoint: ${ZHIYI_STORAGE_S3_ENDPOINT:}
+      region: ${ZHIYI_STORAGE_S3_REGION:us-east-1}
+      bucket: ${ZHIYI_STORAGE_S3_BUCKET:zhiyi-manyou}
+      access-key: ${ZHIYI_STORAGE_S3_ACCESS_KEY:}
+      secret-key: ${ZHIYI_STORAGE_S3_SECRET_KEY:}
+      path-style: ${ZHIYI_STORAGE_S3_PATH_STYLE:true}
 
   # ---------------------------------------------------------------------------
   # 双向互评（M6）
@@ -178,7 +205,7 @@ logging:
     org.springframework.security: INFO
     com.baomidou.mybatisplus: INFO
   pattern:
-    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n'
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [traceId=%X{traceId:-}] %logger{36} - %msg%n'
 
 management:
   endpoints:

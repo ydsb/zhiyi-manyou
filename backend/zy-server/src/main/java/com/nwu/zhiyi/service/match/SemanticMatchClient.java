@@ -65,6 +65,10 @@ public class SemanticMatchClient {
 
     private volatile long circuitOpenUntil = 0L;
     private volatile String lastError = null;
+    private volatile long lastSuccessAt = 0L;
+    private volatile long lastFailureAt = 0L;
+    private final java.util.concurrent.atomic.LongAdder semanticRequests = new java.util.concurrent.atomic.LongAdder();
+    private final java.util.concurrent.atomic.LongAdder degradedRequests = new java.util.concurrent.atomic.LongAdder();
 
     private volatile RestClient restClient;
 
@@ -154,12 +158,14 @@ public class SemanticMatchClient {
      */
     public SearchResult search(String query, int topK, String kind, List<Integer> seedSkillIds) {
         if (!enabled) {
+            degradedRequests.increment();
             return SearchResult.degraded("语义匹配已在配置中关闭（zhiyi.nlp.enabled=false）");
         }
         if (query == null || query.isBlank()) {
             return SearchResult.noMatch("查询文本为空");
         }
         if (isCircuitOpen()) {
+            degradedRequests.increment();
             return SearchResult.degraded(
                     "语义服务近期不可用，暂停调用 " + (CIRCUIT_OPEN_MS / 1000) + " 秒（最近错误：" + lastError + "）");
         }
@@ -188,10 +194,14 @@ public class SemanticMatchClient {
             JsonNode root = objectMapper.readTree(resp);
             List<Hit> hits = parseHits(root.path("hits"));
             closeCircuit();
+            lastSuccessAt = System.currentTimeMillis();
+            semanticRequests.increment();
             return new SearchResult(true, "semantic", hits, took,
                     hits.isEmpty() ? "语义通道无匹配（这是合法结论，不是故障）" : null);
         } catch (Exception e) {
             openCircuit(e);
+            lastFailureAt = System.currentTimeMillis();
+            degradedRequests.increment();
             long took = System.currentTimeMillis() - t0;
             log.warn("[语义匹配] 调用失败（{} ms），已降级到关键词通道：{}", took, e.getMessage());
             return SearchResult.degraded("语义服务不可用：" + brief(e));
@@ -219,9 +229,11 @@ public class SemanticMatchClient {
                     .body(String.class);
             JsonNode root = objectMapper.readTree(resp);
             closeCircuit();
+            lastSuccessAt = System.currentTimeMillis();
             return root.path("score").asDouble(0.0);
         } catch (Exception e) {
             openCircuit(e);
+            lastFailureAt = System.currentTimeMillis();
             log.warn("[语义匹配] 相似度计算失败，返回 null 以便上层兜底：{}", e.getMessage());
             return null;
         }
@@ -238,6 +250,12 @@ public class SemanticMatchClient {
         m.put("baseUrl", baseUrl);
         m.put("circuitOpen", isCircuitOpen());
         m.put("lastError", lastError);
+        m.put("lastSuccessAt", lastSuccessAt == 0 ? null : java.time.Instant.ofEpochMilli(lastSuccessAt).toString());
+        m.put("lastFailureAt", lastFailureAt == 0 ? null : java.time.Instant.ofEpochMilli(lastFailureAt).toString());
+        m.put("semanticRequests", semanticRequests.sum());
+        m.put("degradedRequests", degradedRequests.sum());
+        long requestTotal = semanticRequests.sum() + degradedRequests.sum();
+        m.put("degradedRate", requestTotal == 0 ? 0.0 : (double) degradedRequests.sum() / requestTotal);
         if (!enabled) {
             m.put("ready", false);
             m.put("message", "语义匹配已关闭");

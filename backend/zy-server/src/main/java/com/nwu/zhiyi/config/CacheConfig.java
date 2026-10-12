@@ -1,21 +1,26 @@
 package com.nwu.zhiyi.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.Map;
 
 /**
  * 缓存配置。
  *
- * <p>当前阶段使用 JVM 进程内缓存（{@link ConcurrentMapCacheManager}）：
- * <ul>
- *   <li>技能标签快照、标签树、图谱关系都是"读多写极少"的字典数据，进程内缓存
- *       即可满足 NFR-P-01 的响应时间目标；</li>
- *   <li>不引入 Redis，避免在 S2 阶段增加部署依赖（Redis 将在 M5 行为日志削峰时引入）；</li>
- *   <li>替换为 Redis 只需新增一个 {@link CacheManager} Bean，调用方无感知。</li>
- * </ul>
+ * <p>默认使用 JVM 进程内缓存；设置 {@code zhiyi.cache.type=redis} 后切换到 Redis，
+ * 调用方无需修改。Redis 模式设置 TTL 和 JSON 序列化，避免缓存永久占用空间。
  *
  * <p>缓存区域：
  * <table border="1">
@@ -38,7 +43,33 @@ public class CacheConfig {
     public static final String CACHE_ONTOLOGY_GRAPH = "ontologyGraph";
 
     @Bean
-    public CacheManager cacheManager() {
+    @ConditionalOnProperty(prefix = "zhiyi.cache", name = "type", havingValue = "redis")
+    public CacheManager redisCacheManager(RedisConnectionFactory connectionFactory) {
+        RedisCacheConfiguration defaults = RedisCacheConfiguration.defaultCacheConfig()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new GenericJackson2JsonRedisSerializer()))
+                .entryTtl(Duration.ofMinutes(30))
+                .disableCachingNullValues();
+
+        Map<String, RedisCacheConfiguration> cacheConfigurations = Map.of(
+                CACHE_SKILL_SNAPSHOT, defaults.entryTtl(Duration.ofHours(1)),
+                CACHE_SKILL_TREE, defaults.entryTtl(Duration.ofMinutes(30)),
+                CACHE_SKILL_SEARCH, defaults.entryTtl(Duration.ofMinutes(10)),
+                CACHE_ONTOLOGY_GRAPH, defaults.entryTtl(Duration.ofMinutes(30))
+        );
+
+        return RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(defaults)
+                .withInitialCacheConfigurations(cacheConfigurations)
+                .transactionAware()
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "zhiyi.cache", name = "type", havingValue = "local", matchIfMissing = true)
+    public CacheManager localCacheManager() {
         return new ConcurrentMapCacheManager(
                 CACHE_SKILL_SNAPSHOT,
                 CACHE_SKILL_TREE,

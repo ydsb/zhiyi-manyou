@@ -6,6 +6,11 @@ import com.nwu.zhiyi.api.dto.RefreshTokenRequest;
 import com.nwu.zhiyi.api.dto.RegisterRequest;
 import com.nwu.zhiyi.api.dto.UserInfoVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
+import com.nwu.zhiyi.common.api.ErrorCode;
+import com.nwu.zhiyi.common.exception.BusinessException;
+import com.nwu.zhiyi.security.JwtTokenProvider;
+import com.nwu.zhiyi.security.LoginProtectionService;
+import com.nwu.zhiyi.security.RequestRateLimiter;
 import com.nwu.zhiyi.security.SecurityUtils;
 import com.nwu.zhiyi.service.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +21,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+
+import java.time.Duration;
+import java.util.Map;
 
 /**
  * 认证接口。
@@ -30,6 +39,9 @@ import jakarta.validation.Valid;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtTokenProvider tokenProvider;
+    private final LoginProtectionService loginProtectionService;
+    private final RequestRateLimiter requestRateLimiter;
 
     /**
      * 账号密码登录。
@@ -37,8 +49,21 @@ public class AuthController {
      * <pre>POST /api/auth/login</pre>
      */
     @PostMapping("/login")
-    public ApiResponse<LoginVO> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.success("登录成功", authService.login(request));
+    public ApiResponse<LoginVO> login(@Valid @RequestBody LoginRequest request,
+                                      HttpServletRequest httpRequest) {
+        String clientIp = clientIp(httpRequest);
+        requestRateLimiter.check("auth:login:" + clientIp, 10, Duration.ofMinutes(5));
+        loginProtectionService.ensureAllowed(request.getSno(), clientIp);
+        try {
+            LoginVO result = authService.login(request);
+            loginProtectionService.recordSuccess(request.getSno(), clientIp);
+            return ApiResponse.success("登录成功", result);
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() == ErrorCode.LOGIN_FAILED) {
+                loginProtectionService.recordFailure(request.getSno(), clientIp);
+            }
+            throw ex;
+        }
     }
 
     /**
@@ -74,13 +99,26 @@ public class AuthController {
     /**
      * 退出登录。
      *
-     * <p>JWT 为无状态令牌，服务端不维护会话；前端清除本地令牌即可。
-     * 若后续引入 Redis 黑名单，可在此处写入失效记录。
+     * <p>撤销当前访问令牌，前端随后清除本地令牌。
      *
      * <pre>POST /api/auth/logout</pre>
      */
     @PostMapping("/logout")
-    public ApiResponse<Void> logout() {
+    public ApiResponse<Void> logout(HttpServletRequest request,
+                                    @RequestBody(required = false) Map<String, String> body) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) {
+            tokenProvider.revoke(header.substring("Bearer ".length()).trim());
+        }
+        if (body != null && body.get("refreshToken") != null) {
+            tokenProvider.revoke(body.get("refreshToken"));
+        }
         return ApiResponse.success("已退出登录", null);
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        // 默认只信任容器看到的对端地址，避免客户端伪造 X-Forwarded-For 绕过限流。
+        // 若生产环境前置了反向代理，应在代理层先覆盖并校验该地址，再接入可信代理解析。
+        return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
     }
 }

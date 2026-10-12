@@ -9,6 +9,7 @@ import com.nwu.zhiyi.api.dto.evaluation.IntegrityResultVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.common.enums.EvaluationDimension;
 import com.nwu.zhiyi.security.SecurityUtils;
+import com.nwu.zhiyi.security.RequestRateLimiter;
 import com.nwu.zhiyi.service.evaluation.EvaluationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +24,7 @@ import jakarta.validation.Valid;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /**
  * 双向互评接口（模块 M6）。
@@ -43,6 +45,7 @@ import java.util.Map;
 public class EvaluationController {
 
     private final EvaluationService evaluationService;
+    private final RequestRateLimiter requestRateLimiter;
 
     /**
      * 提交互评（FR-M6-01 / FR-M6-02）。
@@ -51,7 +54,9 @@ public class EvaluationController {
      */
     @PostMapping
     public ApiResponse<EvaluationStatusVO> submit(@Valid @RequestBody EvaluationSubmitRequest request) {
-        EvaluationStatusVO status = evaluationService.submit(SecurityUtils.currentSno(), request);
+        String sno = SecurityUtils.currentSno();
+        requestRateLimiter.check("evaluation:submit:" + sno, 20, Duration.ofHours(1));
+        EvaluationStatusVO status = evaluationService.submit(sno, request);
         String message = Boolean.TRUE.equals(status.getBothSubmitted())
                 ? "评价已提交并哈希存证；双方互评完成，交换已流转为「已完成」"
                 : "评价已提交并哈希存证。对方的评分将在其提交后可见";

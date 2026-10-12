@@ -8,6 +8,7 @@ import com.nwu.zhiyi.api.dto.demand.MarketCardVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.common.api.PageResult;
 import com.nwu.zhiyi.security.SecurityUtils;
+import com.nwu.zhiyi.security.RequestRateLimiter;
 import com.nwu.zhiyi.service.demand.DemandService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
 import java.util.List;
+import java.time.Duration;
 
 /**
  * 供需集市接口（模块 M4 的卡片部分）。
@@ -36,6 +38,7 @@ import java.util.List;
 public class DemandController {
 
     private final DemandService demandService;
+    private final RequestRateLimiter requestRateLimiter;
 
     /**
      * 集市信息流（FR-M4-02 / FR-M4-03）。
@@ -97,7 +100,9 @@ public class DemandController {
      */
     @PostMapping
     public ApiResponse<MarketCardVO> create(@Valid @RequestBody DemandCreateRequest request) {
-        MarketCardVO card = demandService.create(SecurityUtils.currentSno(), request);
+        String sno = SecurityUtils.currentSno();
+        requestRateLimiter.check("demand:create:" + sno, 10, Duration.ofHours(1));
+        MarketCardVO card = demandService.create(sno, request);
         String message = "PENDING".equals(card.getAuditStatus())
                 ? "已发布，内容命中风险特征需人工复核，复核通过后出现在集市"
                 : "发布成功";

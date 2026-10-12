@@ -4,6 +4,7 @@ import com.nwu.zhiyi.api.dto.exchange.ExchangeApplyRequest;
 import com.nwu.zhiyi.api.dto.exchange.ExchangeVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.security.SecurityUtils;
+import com.nwu.zhiyi.security.RequestRateLimiter;
 import com.nwu.zhiyi.service.exchange.ExchangeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /**
  * 技能交换接口（模块 M4 的流程部分，FR-M4-04 / FR-M4-05 / FR-M4-06 / FR-M4-09）。
@@ -29,6 +31,7 @@ import java.util.Map;
 public class ExchangeController {
 
     private final ExchangeService exchangeService;
+    private final RequestRateLimiter requestRateLimiter;
 
     /**
      * 对需求卡片发起交换邀约。
@@ -37,7 +40,9 @@ public class ExchangeController {
      */
     @PostMapping("/apply")
     public ApiResponse<Map<String, Object>> apply(@Valid @RequestBody ExchangeApplyRequest request) {
-        return ApiResponse.success(exchangeService.apply(SecurityUtils.currentSno(), request));
+        String sno = SecurityUtils.currentSno();
+        requestRateLimiter.check("exchange:apply:" + sno, 30, Duration.ofMinutes(10));
+        return ApiResponse.success(exchangeService.apply(sno, request));
     }
 
     /**

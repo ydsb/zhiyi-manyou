@@ -6,6 +6,7 @@ import com.nwu.zhiyi.common.util.HashUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,6 +40,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "zhiyi.storage", name = "type", havingValue = "LOCAL", matchIfMissing = true)
 public class LocalFileStorage implements FileStorage {
 
     private static final DateTimeFormatter DATE_DIR = DateTimeFormatter.ofPattern("yyyy/MM/dd");
@@ -122,6 +124,11 @@ public class LocalFileStorage implements FileStorage {
 
     @Override
     public void validate(String originalName, long size) {
+        validateFile(originalName, size);
+    }
+
+    /** Shared validation used by local and S3-compatible implementations. */
+    static void validateFile(String originalName, long size) {
         if (size <= 0) {
             throw new BusinessException(ErrorCode.FILE_EMPTY);
         }
@@ -164,7 +171,7 @@ public class LocalFileStorage implements FileStorage {
         return toHex(digest.digest());
     }
 
-    private static String extensionOf(String fileName) {
+    static String extensionOf(String fileName) {
         if (fileName == null) {
             return "";
         }

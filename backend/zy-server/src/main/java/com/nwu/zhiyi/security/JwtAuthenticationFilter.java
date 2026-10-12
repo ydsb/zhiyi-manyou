@@ -9,6 +9,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import com.nwu.zhiyi.domain.mapper.StudentMapper;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -32,6 +33,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public static final String PREFIX = "Bearer ";
 
     private final JwtTokenProvider tokenProvider;
+    private final StudentMapper studentMapper;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -42,6 +44,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Claims claims = tokenProvider.parse(token);
             if (claims != null && JwtTokenProvider.TYPE_ACCESS.equals(claims.get(JwtTokenProvider.CLAIM_TYPE, String.class))) {
                 String sno = claims.getSubject();
+                Integer accountStatus = studentMapper.selectStatusBySno(sno);
+                if (accountStatus == null || accountStatus != 1) {
+                    chain.doFilter(request, response);
+                    return;
+                }
                 UserRole role;
                 try {
                     role = UserRole.valueOf(claims.get(JwtTokenProvider.CLAIM_ROLE, String.class));

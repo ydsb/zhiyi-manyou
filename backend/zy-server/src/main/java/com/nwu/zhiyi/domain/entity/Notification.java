@@ -54,6 +54,9 @@ public class Notification implements Serializable {
     /** 是否已读：0未读 1已读 */
     private Integer readFlag;
 
+    /** Outbox event identifier, unique when delivered asynchronously. */
+    private Long outboxId;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

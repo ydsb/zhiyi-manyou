@@ -37,6 +37,8 @@ public enum ErrorCode {
     TOKEN_EXPIRED(2004, "令牌已过期"),
     ACCOUNT_DISABLED(2005, "账号已被禁用"),
     ACCOUNT_NOT_VERIFIED(2006, "账号未通过实名核验"),
+    LOGIN_RATE_LIMITED(2007, "登录尝试过于频繁，请稍后再试"),
+    RATE_LIMITED(2008, "请求过于频繁，请稍后再试"),
 
     /* ---------------- 3xxx 业务 ---------------- */
     LOGIN_FAILED(3001, "学号或密码错误"),
@@ -143,6 +145,7 @@ public enum ErrorCode {
     VECTOR_STORE_ERROR(4002, "向量库访问异常"),
     CACHE_ERROR(4003, "缓存访问异常"),
     FILE_UPLOAD_ERROR(4004, "文件上传失败"),
+    FILE_STORAGE_ERROR(4005, "文件存储服务暂不可用"),
 
     /* ---------------- 5xxx 系统 ---------------- */
     SYSTEM_ERROR(5000, "系统内部错误，请稍后重试"),

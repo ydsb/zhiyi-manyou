@@ -18,7 +18,7 @@ NLP 没起时，解析接口照样返回 HTTP 200，但命中 0 条，还提示�
 ### 用法
 
 ```powershell
-cd G:\DEV\zhiyi-manyou-repo
+cd G:\DEV\zhiyi-manyou-yueyong
 
 # 启动（会在独立窗口里起三个服务，最小化）
 powershell -ExecutionPolicy Bypass -File .\scripts\start-all.ps1
@@ -119,7 +119,7 @@ $env:ZHIYI_DB_PASSWORD = '你的密码'
 # 若 mysql 不在 PATH 中（本项目开发机在 G:\DEV\mysql）
 $env:ZHIYI_MYSQL_HOME   = 'G:\DEV\mysql'
 
-cd G:\DEV\zhiyi-manyou-repo
+cd G:\DEV\zhiyi-manyou-yueyong
 
 # 1) 备份（默认压缩，保留最近 14 份）
 powershell -ExecutionPolicy Bypass -File .\scripts\backup.ps1 backup
@@ -254,7 +254,7 @@ Windows PowerShell 5.1 在 zh-CN 环境下按 GBK 解析 `.ps1`，写中文注�
 
 ```powershell
 # 任务计划程序里可用的无交互命令
-powershell -NoProfile -ExecutionPolicy Bypass -File G:\DEV\zhiyi-manyou-repo\scripts\backup.ps1 backup
+powershell -NoProfile -ExecutionPolicy Bypass -File G:\DEV\zhiyi-manyou-yueyong\scripts\backup.ps1 backup
 ```
 
 > 密码通过**系统环境变量**（不是用户变量）配好，任务计划程序才读得到。

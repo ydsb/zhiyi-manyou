@@ -376,6 +376,7 @@ function Invoke-Start {
 
     $pythonExe = $null
     foreach ($cand in @(
+        'G:\DEV\python313\python.exe',
         'G:\DEV\python-venv\Scripts\python.exe',
         (Join-Path $repoRoot 'nlp-service\.venv\Scripts\python.exe'),
         (Join-Path $repoRoot '.venv\Scripts\python.exe')
@@ -435,7 +436,10 @@ function Invoke-Start {
     if ($NoNlp) {
         Write-WarnLine 'skipped'
     } else {
-        $venvSite = Join-Path (Split-Path -Parent (Split-Path -Parent $pythonExe)) 'Lib\site-packages'
+        $venvSite = 'G:\DEV\python-venv\Lib\site-packages'
+        if (-not (Test-Path -LiteralPath $venvSite)) {
+            $venvSite = Join-Path (Split-Path -Parent (Split-Path -Parent $pythonExe)) 'Lib\site-packages'
+        }
         $nlpLines = @()
         if (Test-Path -LiteralPath $venvSite) { $nlpLines += "set PYTHONPATH=$venvSite" }
         $nlpLines += 'set PYTHONIOENCODING=utf-8'

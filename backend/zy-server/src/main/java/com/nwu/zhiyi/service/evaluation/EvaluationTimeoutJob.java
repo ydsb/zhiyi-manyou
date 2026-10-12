@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
+import com.nwu.zhiyi.config.DistributedJob;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -74,6 +75,7 @@ public class EvaluationTimeoutJob {
      * <p>初始延迟 3 分钟，错开启动负载。
      */
     @Scheduled(initialDelay = 180_000, fixedDelay = 21_600_000)
+    @DistributedJob("evaluation-timeout")
     public void scanPendingEvaluations() {
         List<ExchangeRecord> pending = exchangeMapper.selectList(new LambdaQueryWrapper<ExchangeRecord>()
                 .eq(ExchangeRecord::getStatus, ExchangeStatus.PENDING_EVAL)

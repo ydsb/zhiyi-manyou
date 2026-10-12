@@ -9,7 +9,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42B883)](https://vuejs.org/)
 [![MyBatis-Plus](https://img.shields.io/badge/MyBatis--Plus-3.5.7-red)](https://baomidou.com/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-208%20backend%20%2B%206%20frontend%20%2B%2047%20NLP-success)](#测试)
+[![Tests](https://img.shields.io/badge/tests-224%20backend%20%2B%2017%20frontend%20%2B%2047%20NLP-success)](#测试)
 
 ---
 
@@ -91,7 +91,7 @@
 | 层次 | 技术 |
 |---|---|
 | 后端 | Spring Boot 3.3.5、JDK 17、Spring Security 6（JWT）、MyBatis-Plus 3.5.7、Hibernate Validator 8 |
-| 数据库 | MySQL 8.0（24 张表） |
+| 数据库 | MySQL 8.0（27 张基础表；含 outbox 迁移后 28 张） |
 | 前端 | Vue 3.5、Vite 8、TypeScript 5.7、Pinia 4、Vue Router 5、Element Plus 2.14、ECharts 6 |
 | 工具库 | JJWT 0.11.5、Hutool 5.8.35 |
 | 算法服务（S3） | Python 3.13 + numpy + FastAPI：中文 n-gram 分词 → TF-IDF → 随机化截断 SVD → 向量检索 |
@@ -113,7 +113,7 @@
 ### 1. 初始化数据库
 
 ```bash
-# 建库并导入表结构与种子数据（24 张表，含演示用的技能标签与测试账号）
+# 建库并导入表结构与种子数据（27 张基础表，含演示用的技能标签与测试账号）
 mysql -u root -p < sql/01-schema.sql
 
 # 若从旧版本升级，按顺序执行增量迁移
@@ -123,6 +123,9 @@ mysql -u root -p < sql/04-migration-m6-canonical.sql
 mysql -u root -p < sql/05-migration-m7.sql
 mysql -u root -p < sql/06-migration-m8.sql
 mysql -u root -p < sql/07-migration-m9.sql
+
+# 启用数据库通知 outbox（可选；启用 ZHIYI_NOTIFICATION_DELIVERY=outbox 前必须执行）
+mysql -u root -p < sql/11-migration-notification-outbox.sql
 ```
 
 ### 2. 配置凭据（**仓库中不含任何真实密码**）
@@ -207,7 +210,7 @@ npm run dev     # http://localhost:5173
 ## 项目结构
 
 ```
-zhiyi-manyou-repo/
+zhiyi-manyou-yueyong/
 ├── backend/                       Spring Boot 后端（Maven 多模块）
 │   ├── pom.xml                    父 POM（统一依赖与版本）
 │   ├── build-env.ps1              构建环境（zy-build / zy-run / zy-test）
@@ -268,7 +271,7 @@ zhiyi-manyou-repo/
 ## 测试
 
 ```powershell
-# 后端单元测试（208 项）
+# 后端单元测试（224 项）
 . .\backend\build-env.ps1
 Push-Location backend
 mvn test
@@ -301,9 +304,12 @@ Pop-Location
 | `CollabViewTest` | 11 | 协作任务/文件/时间轴视图转换 |
 | `DemandContentAuditorTest` | 9 | 需求卡片内容审核 |
 | `EvaluationContentAuditorTest` | 9 | 互评内容审核（低分强制说明） |
-| **后端单元测试（Java）** | **208** | 全部通过 |
+| **后端单元测试（Java）** | **224** | 全部通过 |
 | **接口冒烟测试（PowerShell）** | **41** | 需服务已启动 |
 | `guard.test.ts`（前端） | **6** | 公开路由、登录跳转、首次引导、管理员权限、刷新后加载用户 |
+| `request.test.ts`（前端） | **4** | 令牌过期自动刷新、并发刷新合并、失败清理、认证接口防递归 |
+| `auth.test.ts`（前端） | **3** | 令牌轮换同步、会话失效清理、临时网络错误保留会话 |
+| `OnboardingView.test.ts`（前端） | **4** | 画像加载保护、失败重试、覆盖式保存防误清空 |
 | `test_nlp.py`（Python） | **47** | **NLP 分词 / TF-IDF / SVD / 向量检索 / 图谱加成 / 算法边界** |
 
 GitHub Actions 会在推送到 `main` 和每个 Pull Request 上运行后端、前端与 NLP 测试；前端同时执行类型检查和生产构建。
@@ -368,8 +374,8 @@ GitHub Actions 会在推送到 `main` 和每个 Pull Request 上运行后端、�
 
 ### 7. 存储介质策略化
 
-`FileStorage` 接口 + `LocalFileStorage` 实现，采购云服务后新增 `OssFileStorage` 即可切换，
-**业务代码零改动**。文件按 `yyyy/MM/dd/uuid.ext` 存储，原始文件名单独入库，
+`FileStorage` 接口 + `LocalFileStorage` / `S3FileStorage` 实现，可接入 AWS S3、MinIO 或兼容网关；
+通过 `ZHIYI_STORAGE_TYPE` 切换，**业务代码零改动**。文件按 `yyyy/MM/dd/uuid.ext` 存储，原始文件名单独入库，
 避免文件名冲突、路径穿越与中文编码问题。
 
 ### 8. 值域约束必须与阈值定义对齐（M8 踩坑）
@@ -607,7 +613,7 @@ JSON Schema 可直接喂给 LLM 的函数调用协议：
 | 裁决执行力度 | 固定分值（-15/-5/+3），未按情节分级 | 可由委员会选择情节档位 |
 | 匿名投票的防串通 | 仅哈希存证投票内容，未防委员私下串通 | 需更复杂的机制设计 |
 | FR-M4-08 收藏/订阅 | 未实现（P2） | 待排期 |
-| FR-M5-08 阶段性成果互相确认 | 部分覆盖（打卡 + 证据地址） | 与 M8 一起做 |
+| FR-M5-08 阶段性成果互相确认 | ✅ 已实现（双方确认 + 撤回清确认） | 已有单测覆盖 |
 
 ---
 

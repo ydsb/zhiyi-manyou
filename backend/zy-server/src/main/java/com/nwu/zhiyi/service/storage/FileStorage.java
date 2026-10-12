@@ -8,8 +8,8 @@ import java.io.InputStream;
  * <p><b>为什么抽象出接口</b>：需求文档里"云服务器 / 云数据库 / 高性能对象存储"
  * 属于采购项（经费预算的"系统开发与云服务费"），开发期不可能先买 OSS；
  * 但业务代码不应该为此改两遍。因此把存储介质收敛到本接口，
- * 开发期用 {@code LocalFileStorage}（磁盘），采购后加一个 {@code OssFileStorage}
- * 实现即可切换，业务层零改动。
+ * 开发期用 {@code LocalFileStorage}（磁盘），部署时可切换到 {@code S3FileStorage}
+ *（AWS S3、MinIO 或兼容网关），业务层零改动。
  *
  * <p>{@code storageType} 会随文件记录一起落库，便于迁移期识别历史文件的实际介质。
  *

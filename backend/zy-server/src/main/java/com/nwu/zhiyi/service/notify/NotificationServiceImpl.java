@@ -8,9 +8,11 @@ import com.nwu.zhiyi.domain.entity.ExchangeRecord;
 import com.nwu.zhiyi.domain.entity.Notification;
 import com.nwu.zhiyi.domain.mapper.ExchangeRecordMapper;
 import com.nwu.zhiyi.domain.mapper.NotificationMapper;
+import com.nwu.zhiyi.domain.mapper.NotificationOutboxMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -33,6 +35,10 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationMapper notificationMapper;
     private final ExchangeRecordMapper exchangeMapper;
+    private final NotificationOutboxMapper outboxMapper;
+
+    @Value("${zhiyi.notification.delivery:sync}")
+    private String deliveryMode;
 
     /** 单次列表返回上限，防止一次性拉爆 */
     private static final int MAX_LIST_SIZE = 200;
@@ -42,6 +48,14 @@ public class NotificationServiceImpl implements NotificationService {
     public void send(String sno, NotificationType type, String title, String content,
                      String refType, Long refId) {
         if (!StringUtils.hasText(sno)) {
+            return;
+        }
+        if ("outbox".equalsIgnoreCase(deliveryMode)) {
+            try {
+                outboxMapper.enqueue(sno, type.code(), title, content, refType, refId, null);
+            } catch (Exception e) {
+                log.warn("[通知] outbox 入队失败（已忽略）：sno={} type={} - {}", sno, type, e.getMessage());
+            }
             return;
         }
         try {
@@ -66,6 +80,15 @@ public class NotificationServiceImpl implements NotificationService {
                             String refType, Long refId) {
         if (!StringUtils.hasText(sno)) {
             return false;
+        }
+        if ("outbox".equalsIgnoreCase(deliveryMode)) {
+            String key = idempotencyKey(sno, type, refType, refId);
+            try {
+                return outboxMapper.enqueue(sno, type.code(), title, content, refType, refId, key) > 0;
+            } catch (Exception e) {
+                log.warn("[通知] outbox 幂等入队失败：sno={} type={} - {}", sno, type, e.getMessage());
+                return false;
+            }
         }
         try {
             if (notificationMapper.exists(sno, type.code(), refType, refId)) {
@@ -137,5 +160,11 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional(rollbackFor = Exception.class)
     public int markAllRead(String sno) {
         return notificationMapper.markAllRead(sno);
+    }
+
+    private String idempotencyKey(String sno, NotificationType type, String refType, Long refId) {
+        String raw = String.join("|", sno, type.code(), refType == null ? "" : refType,
+                refId == null ? "" : refId.toString());
+        return com.nwu.zhiyi.common.util.HashUtils.sha256Hex(raw);
     }
 }

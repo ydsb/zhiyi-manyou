@@ -7,6 +7,7 @@ import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import com.nwu.zhiyi.config.DistributedJob;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
@@ -47,6 +48,7 @@ public class ProfileBatchJob {
      * <p>放在凌晨是为了避开使用高峰；同周期覆盖不会造成数据膨胀。
      */
     @Scheduled(cron = "${zhiyi.profile.snapshot-cron:0 10 2 * * ?}")
+    @DistributedJob("profile-monthly-snapshot")
     public void refreshMonthlySnapshots() {
         String period = LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
         List<Student> students = studentMapper.selectList(new LambdaQueryWrapper<Student>()
@@ -71,6 +73,7 @@ public class ProfileBatchJob {
      * 每周一 09:00 生成上周成长周报（FR-M7-05）并推送。
      */
     @Scheduled(cron = "${zhiyi.profile.weekly-report-cron:0 0 9 ? * MON}")
+    @DistributedJob("profile-weekly-report")
     public void generateWeeklyReports() {
         // 只给"最近有协作活动"的用户生成，避免给完全不活跃的用户发空周报
         LocalDate since = LocalDate.now().minusWeeks(4);
@@ -96,6 +99,7 @@ public class ProfileBatchJob {
      * <p>与快照分开跑，避免一次任务里做太多事导致某一步失败牵连其他步骤。
      */
     @Scheduled(cron = "${zhiyi.profile.badge-cron:0 0 3 * * ?}")
+    @DistributedJob("profile-badge-grant")
     public void grantBadges() {
         List<Student> students = studentMapper.selectList(new LambdaQueryWrapper<Student>()
                 .select(Student::getSno));

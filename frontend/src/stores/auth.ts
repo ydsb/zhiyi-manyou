@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { authApi } from '@/api/auth'
 import { tokenStorage } from '@/api/request'
 import type { LoginRequest, RegisterRequest, UserInfo } from '@/api/types'
@@ -13,6 +13,16 @@ export const useAuthStore = defineStore('auth', () => {
   /** 首次登录 —— 为 true 时进入「新手漫游导引」 */
   const firstLogin = ref(false)
   const loading = ref(false)
+
+  // 请求层更新或清理令牌时，同步响应式状态；不依赖再次调用 fetchUser。
+  const unsubscribe = tokenStorage.subscribe((token) => {
+    accessToken.value = token
+    if (!token) {
+      user.value = null
+      firstLogin.value = false
+    }
+  })
+  onScopeDispose(unsubscribe)
 
   const isLoggedIn = computed(() => !!accessToken.value)
   const isAdmin = computed(() => user.value?.role === 'ADMIN')
@@ -63,7 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout() {
     try {
       if (accessToken.value) {
-        await authApi.logout()
+        await authApi.logout(tokenStorage.getRefresh())
       }
     } catch {
       // 退出失败不阻塞本地清理

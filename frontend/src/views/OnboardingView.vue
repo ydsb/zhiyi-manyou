@@ -10,18 +10,16 @@ import type { Skill, SkillIntent, SkillTree } from '@/api/types'
 /**
  * 新手漫游导引（FR-M1-03 / FR-M1-04）。
  *
- * <p><b>本页在 M1 阶段是纯前端骨架，本次才接上真实能力</b>，记录一下为什么
- * 值得单独说明 —— 因为原实现的缺陷是"看起来能用、实际什么都没做"：
+ * <p>本页现在接入真实技能树、自然语言抽取和画像保存。这里保留实现边界说明，
+ * 便于后续维护者理解导引为什么不能只做成静态标签选择器：
  *
  * <ol>
- *   <li>标签池是 12 个<b>硬编码</b>字符串，而平台已有 788 个真实技能标签
+ *   <li>标签池不能写成少量<b>硬编码</b>字符串，而应使用平台真实技能树
  *       分属 62 个学科、12 个门类。对跨学科定位的产品来说，
  *       只给 12 个计算机相关标签等于把产品最核心的资产藏起来了；</li>
- *   <li>{@code finish()} 里只有一句 TODO，<b>选完不落库</b>。
- *       而 {@code zy_user_skill_profile} 是集市匹配度、供需因子、
- *       能力雷达图、首登判断的公共输入 —— 空画像会让匹配因子恒为 0；</li>
- *   <li>于是"首次登录"永远为真：用户每次登录都被强制拉回本页，
- *       形成死循环式的骚扰。</li>
+ *   <li>选完必须写入 {@code zy_user_skill_profile}。它是集市匹配度、供需因子、
+ *       能力雷达图、首登判断的公共输入；</li>
+ *   <li>保存结果还会参与首次登录判断，确保完成导引后不会重复进入本页。</li>
  * </ol>
  *
  * <p>现在：标签来自 {@code /api/skills/tree}（可搜索、按学科门类筛选），
@@ -38,7 +36,10 @@ const auth = useAuthStore()
 const step = ref(0)
 const tree = ref<SkillTree | null>(null)
 const loadingTree = ref(false)
+const loadingProfile = ref(false)
+const initializationError = ref('')
 const saving = ref(false)
+const canEdit = computed(() => prefillDone.value && tree.value !== null && !loadingProfile.value && !loadingTree.value)
 
 /** 三步：我擅长 / 我正在研究 / 我急需（与后端 SkillIntent 一一对应） */
 const STEPS: Array<{ intent: SkillIntent; title: string; hint: string; required: boolean }> = [
@@ -156,6 +157,7 @@ function onCategoryChange() {
 const MAX_PER_STEP = 6
 
 function toggle(skill: Skill) {
+  if (!canEdit.value || saving.value || parsing.value) return
   const list = picked.value[step.value]
   const idx = list.findIndex((s) => s.id === skill.id)
   if (idx >= 0) {
@@ -170,6 +172,7 @@ function toggle(skill: Skill) {
 }
 
 function removeAt(index: number) {
+  if (!canEdit.value || saving.value || parsing.value) return
   picked.value[step.value].splice(index, 1)
 }
 
@@ -195,6 +198,7 @@ const lastExtract = ref<{ engine: string; fromRule: number; fromVector: number }
  * 前端只保留"每门类最多 2 个"这条**展示层**约束。
  */
 async function parseAndAdd() {
+  if (!canEdit.value || saving.value || parsing.value) return
   const text = nlText.value.trim()
   if (!text) {
     ElMessage.warning('请输入一句描述')
@@ -365,12 +369,12 @@ function buildItems() {
  */
 async function saveProgress(): Promise<boolean> {
   // 回显未完成时不允许保存：否则会把"还没回显出来的已有标签"当成取消勾选删掉
-  if (!prefillDone.value) {
-    ElMessage.warning('正在读取你已有的画像，请稍候一秒再保存')
+  if (!canEdit.value) {
+    ElMessage.warning(initializationError.value || '正在读取你已有的画像，请稍后再保存')
     return false
   }
   // 防止重复点击导致并发提交（覆盖式写入下并发提交可能互相抵消）
-  if (saving.value) {
+  if (saving.value || parsing.value) {
     return false
   }
   const items = buildItems()
@@ -479,22 +483,17 @@ const prefillDone = ref(false)
 const isEditing = computed(() => (skillsLoadedTotal.value ?? 0) > 0)
 const skillsLoadedTotal = ref<number | null>(null)
 
-onMounted(async () => {
+async function loadInitialData() {
+  if (loadingTree.value || loadingProfile.value || saving.value) return
+  prefillDone.value = false
+  initializationError.value = ''
   loadingTree.value = true
+  loadingProfile.value = true
   try {
-    tree.value = await skillApi.tree()
-  } catch {
-    // 树加载失败时页面仍可用"自然语言抽取"这条路径，故不阻断
-  } finally {
-    loadingTree.value = false
-  }
-
-  /*
-   * 回显已有画像：用户可能是从个人中心的「编辑画像」进来的。
-   * 导引页最早假设"进来就是空的"，那样会直接覆盖掉用户已有的选择。
-   */
-  try {
-    const mine = await profileApi.mySkills()
+    // 覆盖式保存依赖两份完整数据：已有画像用于回显，技能树用于校验合法 ID。
+    // 任意一份失败都不能把页面当作新建态，否则会静默删除未读到的自评标签。
+    const [loadedTree, mine] = await Promise.all([skillApi.tree(), profileApi.mySkills()])
+    tree.value = loadedTree
     skillsLoadedTotal.value = mine.total
     if (mine.total > 0) {
       const byId = new Map<number, Skill>()
@@ -515,13 +514,19 @@ onMounted(async () => {
           .map((e) => byId.get(e.skill.id) ?? e.skill)
           .filter((s): s is Skill => Boolean(s))
       picked.value = [map(mine.skilled), map(mine.researching), map(mine.needed)]
+    } else {
+      picked.value = [[], [], []]
     }
-  } catch {
-    // 回显失败时按"新建"处理；prefillDone 仍置位以保证页面可用
-  } finally {
     prefillDone.value = true
+  } catch {
+    initializationError.value = '技能画像读取失败，请重新加载后再编辑，已有标签不会被覆盖。'
+  } finally {
+    loadingTree.value = false
+    loadingProfile.value = false
   }
-})
+}
+
+onMounted(loadInitialData)
 </script>
 
 <template>
@@ -536,6 +541,11 @@ onMounted(async () => {
         </p>
       </div>
       <el-button text @click="router.push({ name: 'Dashboard' })">稍后设置</el-button>
+    </div>
+
+    <div v-if="initializationError" class="load-error" role="alert">
+      <span>{{ initializationError }}</span>
+      <el-button size="small" type="primary" plain @click="loadInitialData">重新加载</el-button>
     </div>
 
     <el-steps :active="step" align-center class="steps">
@@ -565,6 +575,7 @@ onMounted(async () => {
               v-for="(s, i) in currentPicked"
               :key="s.id"
               closable
+              :disabled="!canEdit || saving || parsing"
               type="primary"
               effect="light"
               @close="removeAt(i)"
@@ -578,6 +589,7 @@ onMounted(async () => {
           <div class="nl">
             <el-input
               v-model="nlText"
+              :disabled="!canEdit || saving || parsing"
               :placeholder="`用一句话描述，例如：${
                 currentStep.intent === 'SKILLED'
                   ? '我会做动态交互效果和作品集页面'
@@ -588,7 +600,7 @@ onMounted(async () => {
               @keyup.enter="parseAndAdd"
             >
               <template #append>
-                <el-button :loading="parsing" @click="parseAndAdd">智能抽取</el-button>
+                <el-button :loading="parsing" :disabled="!canEdit || saving" @click="parseAndAdd">智能抽取</el-button>
               </template>
             </el-input>
             <span class="nl__tip">由平台 NLP 引擎抽取标准化标签，抽完可再手工增删</span>
@@ -633,6 +645,7 @@ onMounted(async () => {
               :key="s.id"
               type="button"
               class="tag"
+              :disabled="!canEdit || saving || parsing"
               :class="{ 'tag--on': pickedIds.has(s.id) }"
               :title="`${s.categoryL1} · ${s.categoryL2}${s.alias ? ' · 别名：' + s.alias : ''}`"
               @click="toggle(s)"
@@ -653,11 +666,11 @@ onMounted(async () => {
           </div>
 
           <div class="actions">
-            <el-button v-if="step > 0" :disabled="saving" @click="step -= 1">上一步</el-button>
-            <el-button type="primary" :loading="saving" @click="next">
+            <el-button v-if="step > 0" :disabled="!canEdit || saving || parsing" @click="step -= 1">上一步</el-button>
+            <el-button type="primary" :loading="saving" :disabled="!canEdit || parsing" @click="next">
               {{ step === STEPS.length - 1 ? '保存并完成' : '保存并下一步' }}
             </el-button>
-            <el-button v-if="isEditing" :disabled="saving" @click="cancel">放弃修改</el-button>
+            <el-button v-if="isEditing" :disabled="saving || parsing" @click="cancel">放弃修改</el-button>
           </div>
 
           <p class="actions__tip">
@@ -722,6 +735,25 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  color: var(--zy-text-regular);
+  background: #fff8ed;
+  border: 1px solid #efd6b3;
+  border-radius: var(--zy-radius);
+}
+
+.tag:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .head {
   display: flex;
   align-items: flex-start;

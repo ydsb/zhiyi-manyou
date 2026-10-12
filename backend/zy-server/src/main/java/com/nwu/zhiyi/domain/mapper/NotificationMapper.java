@@ -15,6 +15,17 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface NotificationMapper extends BaseMapper<Notification> {
 
+    @org.apache.ibatis.annotations.Insert("INSERT INTO zy_notification (sno,type,title,content,ref_type,ref_id,read_flag,outbox_id) " +
+            "VALUES (#{sno},#{type},#{title},#{content},#{refType},#{refId},0,#{outboxId}) " +
+            "ON DUPLICATE KEY UPDATE outbox_id=VALUES(outbox_id)")
+    int insertOutboxDelivery(@org.apache.ibatis.annotations.Param("sno") String sno,
+            @org.apache.ibatis.annotations.Param("type") String type,
+            @org.apache.ibatis.annotations.Param("title") String title,
+            @org.apache.ibatis.annotations.Param("content") String content,
+            @org.apache.ibatis.annotations.Param("refType") String refType,
+            @org.apache.ibatis.annotations.Param("refId") Long refId,
+            @org.apache.ibatis.annotations.Param("outboxId") Long outboxId);
+
     /**
      * 未读数量（用于顶栏红点）。
      *

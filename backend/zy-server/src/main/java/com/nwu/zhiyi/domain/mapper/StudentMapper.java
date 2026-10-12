@@ -51,4 +51,8 @@ public interface StudentMapper extends BaseMapper<Student> {
             + "<foreach collection='snos' item='s' open='(' separator=',' close=')'>#{s}</foreach>"
             + "</script>")
     List<Student> selectBriefBySnos(@Param("snos") Collection<String> snos);
+
+    /** 当前账号状态；JWT 认证时实时读取，确保禁用账号的旧令牌立即失效。 */
+    @Select("SELECT status FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
+    Integer selectStatusBySno(@Param("sno") String sno);
 }

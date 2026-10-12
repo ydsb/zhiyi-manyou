@@ -28,6 +28,7 @@ export class ApiError extends Error {
 
 const TOKEN_KEY = 'zhiyi.accessToken'
 const REFRESH_KEY = 'zhiyi.refreshToken'
+const tokenListeners = new Set<(access: string | null) => void>()
 
 export const tokenStorage = {
   getAccess: () => localStorage.getItem(TOKEN_KEY),
@@ -35,10 +36,16 @@ export const tokenStorage = {
   set(access: string, refresh: string) {
     localStorage.setItem(TOKEN_KEY, access)
     localStorage.setItem(REFRESH_KEY, refresh)
+    tokenListeners.forEach((listener) => listener(access))
   },
   clear() {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(REFRESH_KEY)
+    tokenListeners.forEach((listener) => listener(null))
+  },
+  subscribe(listener: (access: string | null) => void) {
+    tokenListeners.add(listener)
+    return () => { tokenListeners.delete(listener) }
   }
 }
 
@@ -47,6 +54,32 @@ const http: AxiosInstance = axios.create({
   timeout: 20000,
   headers: { 'Content-Type': 'application/json;charset=utf-8' }
 })
+
+type RetryableRequestConfig = AxiosRequestConfig & { _tokenRefreshRetried?: boolean }
+let refreshing: Promise<string | null> | null = null
+
+function isAuthEndpoint(url?: string): boolean {
+  return typeof url === 'string' && /(?:^|\/)auth\/(login|register|refresh|logout)(?:$|\?)/.test(url)
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = tokenStorage.getRefresh()
+  if (!refreshToken) return null
+  if (!refreshing) {
+    refreshing = axios.post<ApiResult<{ accessToken: string; refreshToken: string }>>(
+      `${http.defaults.baseURL || ''}/auth/refresh`,
+      { refreshToken },
+      { headers: { 'Content-Type': 'application/json;charset=utf-8' } }
+    ).then(({ data }) => {
+      if (data?.code !== 0 || !data.data?.accessToken || !data.data?.refreshToken) return null
+      tokenStorage.set(data.data.accessToken, data.data.refreshToken)
+      return data.data.accessToken
+    }).catch(() => null).finally(() => {
+      refreshing = null
+    })
+  }
+  return refreshing
+}
 
 /* ---------------- 请求拦截：注入访问令牌 ---------------- */
 http.interceptors.request.use((config) => {
@@ -74,11 +107,21 @@ http.interceptors.response.use(
     ElMessage.error(body.message || '操作失败')
     return Promise.reject(new ApiError(body.code, body.message, body.traceId))
   },
-  (error) => {
+  async (error) => {
     const status = error?.response?.status
     const body = error?.response?.data as ApiResult | undefined
 
     if (status === 401) {
+      const original = error.config as RetryableRequestConfig | undefined
+      if (original && !original._tokenRefreshRetried && !isAuthEndpoint(original.url)) {
+        original._tokenRefreshRetried = true
+        const accessToken = await refreshAccessToken()
+        if (accessToken) {
+          original.headers = original.headers || {}
+          original.headers.Authorization = `Bearer ${accessToken}`
+          return http.request(original)
+        }
+      }
       tokenStorage.clear()
       if (!redirecting) {
         redirecting = true

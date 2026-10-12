@@ -52,3 +52,11 @@ jobs:
         run: python -m pip install numpy
       - name: Run NLP tests
         run: python tests/test_nlp.py
+      - name: Evaluate semantic retrieval quality
+        run: python tests/eval_match.py --json eval-match.json
+      - name: Upload semantic evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nlp-eval-report
+          path: nlp-service/eval-match.json

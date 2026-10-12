@@ -7,6 +7,7 @@ import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import com.nwu.zhiyi.config.DistributedJob;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -41,6 +42,7 @@ public class GovernanceBatchJob {
      * 拖久了当事人会认为平台不处理。
      */
     @Scheduled(initialDelay = 150_000, fixedDelay = 1_800_000)
+    @DistributedJob("governance-refresh")
     public void settleExpiredDisputes() {
         try {
             int n = arbitrationService.settleExpired();
@@ -58,6 +60,7 @@ public class GovernanceBatchJob {
      * <p>放在凌晨 3:30（勋章授予任务在 3:00）之后，避免两个批处理互相争抢资源。
      */
     @Scheduled(cron = "${zhiyi.governance.credit-cron:0 30 3 * * ?}")
+    @DistributedJob("credit-recalculation")
     public void recalculateAllCredit() {
         List<Student> students = studentMapper.selectList(new LambdaQueryWrapper<Student>()
                 .select(Student::getSno));

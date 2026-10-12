@@ -13,6 +13,7 @@ import com.nwu.zhiyi.service.notify.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import com.nwu.zhiyi.config.DistributedJob;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -56,6 +57,7 @@ public class CollaborationReminderJob {
      * <p>初始延迟 2 分钟，错开应用启动时的初始化负载。
      */
     @Scheduled(initialDelay = 120_000, fixedDelay = 1_800_000)
+    @DistributedJob("collaboration-reminders")
     public void scanTasks() {
         // 只扫描仍处于协作中的交换，终态交换无需提醒
         List<CollabTask> pending = taskMapper.selectList(new LambdaQueryWrapper<CollabTask>()

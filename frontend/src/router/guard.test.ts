@@ -76,4 +76,22 @@ describe('route access policy', () => {
     await expect(guard(adminRoute)).resolves.toBe(true)
     expect(auth.fetchUser).toHaveBeenCalledOnce()
   })
+
+  it('redirects to login when restoring a protected route loses the session', async () => {
+    const auth = {
+      isLoggedIn: true,
+      firstLogin: false,
+      user: null as { role?: string } | null,
+      fetchUser: vi.fn(async () => {
+        auth.isLoggedIn = false
+        throw new Error('refresh rejected')
+      })
+    }
+    const guard = createAuthGuard({ auth, setTitle: vi.fn(), warn: vi.fn() })
+
+    await expect(guard(route())).resolves.toEqual({
+      name: 'Login',
+      query: { redirect: '/dashboard?tab=skills' }
+    })
+  })
 })
