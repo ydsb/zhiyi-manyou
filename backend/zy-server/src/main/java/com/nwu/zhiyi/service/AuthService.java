@@ -125,13 +125,10 @@ public class AuthService {
      */
     @Transactional(rollbackFor = Exception.class)
     public LoginVO refresh(String refreshToken) {
-        Claims claims = tokenProvider.parse(refreshToken);
-        if (claims == null) {
-            throw new BusinessException(ErrorCode.TOKEN_INVALID);
-        }
-        if (!JwtTokenProvider.TYPE_REFRESH.equals(claims.get(JwtTokenProvider.CLAIM_TYPE, String.class))) {
-            throw new BusinessException(ErrorCode.TOKEN_INVALID, "令牌类型不正确，请使用刷新令牌");
-        }
+        // 签名 + 签发者 + 撤销状态 + 令牌类型四重校验由 Provider 内聚完成；
+        // 过期抛 TokenAuthException(2004)、无效或类型不符抛(2003)，
+        // 因其继承 BusinessException，会自然冒泡到全局异常处理器。
+        Claims claims = tokenProvider.parseRefreshToken(refreshToken);
         String sno = claims.getSubject();
         Student student = studentMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Student>()
