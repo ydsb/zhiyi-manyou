@@ -17,6 +17,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * JWT 认证过滤器：从 {@code Authorization: Bearer <token>} 中解析身份并写入安全上下文。
@@ -85,17 +86,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 令牌自述有效还不够：账号被禁用（0）或注销（2）后，旧令牌必须立即失效
-            Integer accountStatus = studentMapper.selectStatusBySno(sno);
-            if (accountStatus == null || accountStatus != 1) {
-                log.debug("[认证] 账号状态不可用（status={}），已忽略该令牌", accountStatus);
+            // 令牌自述有效还不够，必须与数据库对账：账号被禁用（0）、注销（2）或已删除后，
+            // 旧令牌必须立即失效 —— 令牌里没有这些信息。
+            Map<String, Object> authState = studentMapper.selectAuthStateBySno(sno);
+            if (authState == null) {
+                log.debug("[认证] 账号不存在或已被删除，已忽略该令牌：sno={}", sno);
+                request.setAttribute(AUTH_FAILURE_ATTRIBUTE, ErrorCode.ACCOUNT_DISABLED);
+                return;
+            }
+            int accountStatus = authState.get("status") instanceof Number n ? n.intValue() : -1;
+            if (accountStatus != 1) {
+                log.debug("[认证] 账号状态不可用（status={}），已忽略该令牌：sno={}", accountStatus, sno);
                 request.setAttribute(AUTH_FAILURE_ATTRIBUTE, ErrorCode.ACCOUNT_DISABLED);
                 return;
             }
 
-            // 角色取值与非法值降级（-> USER）统一由 UserPrincipal.of 负责，这里只传原始声明，
-            // 避免同一套解析逻辑在过滤器和 UserPrincipal 里各写一遍。
-            UserPrincipal principal = UserPrincipal.of(sno, claims.get(JwtTokenProvider.CLAIM_ROLE, String.class));
+            // 角色以数据库为准，而不是令牌里的快照：否则管理员降级后，旧令牌会继续带着旧角色，
+            // 最长要等令牌自然过期才失效。改用库里的角色后，生效延迟降到"下一次请求"。
+            Object dbRole = authState.get("role");
+            String tokenRole = claims.get(JwtTokenProvider.CLAIM_ROLE, String.class);
+            String effectiveRole = dbRole == null ? tokenRole : dbRole.toString();
+            if (dbRole != null && !effectiveRole.equals(tokenRole)) {
+                log.info("[认证] 令牌角色与库不一致，以库为准：sno={} tokenRole={} dbRole={}",
+                        sno, tokenRole, effectiveRole);
+            }
+
+            // 角色取值与非法值降级（-> USER）统一由 UserPrincipal.of 负责
+            UserPrincipal principal = UserPrincipal.of(sno, effectiveRole);
 
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());

@@ -52,7 +52,23 @@ public interface StudentMapper extends BaseMapper<Student> {
             + "</script>")
     List<Student> selectBriefBySnos(@Param("snos") Collection<String> snos);
 
-    /** 当前账号状态；JWT 认证时实时读取，确保禁用账号的旧令牌立即失效。 */
-    @Select("SELECT status FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
-    Integer selectStatusBySno(@Param("sno") String sno);
+    /**
+     * 当前账号的鉴权状态（status + role）—— JWT 认证时实时读取。
+     *
+     * <p><b>为什么连 role 一起读</b>：令牌里的 role 是<b>签发时的快照</b>。管理员降级或
+     * 升权后，旧令牌仍会带着旧角色直到自然过期（最长一个访问令牌有效期）。把角色一并读出
+     * 并以库为准，就把"权限变更的生效延迟"从「令牌有效期」压到了「下一次请求」。
+     *
+     * <p><b>为什么返回 Map 而不是实体</b>：这是一次只取两列的投影查询，返回部分填充的
+     * {@link Student} 会让人误以为拿到了完整实体；本文件已有 countGroupByCollege()
+     * 返回 Map 的先例。
+     *
+     * <p>注意 {@code status} 是 TINYINT，MyBatis 映射进 Map 时可能是 Byte，
+     * 调用方请通过 Number 读取，不要直接强转 Integer。
+     *
+     * @param sno 学号
+     * @return {@code {status=1, role=ADMIN}}；账号不存在或已逻辑删除时返回 null
+     */
+    @Select("SELECT status, role FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
+    Map<String, Object> selectAuthStateBySno(@Param("sno") String sno);
 }
