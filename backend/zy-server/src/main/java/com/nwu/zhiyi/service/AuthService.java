@@ -86,9 +86,11 @@ public class AuthService {
      */
     @Transactional(rollbackFor = Exception.class)
     public LoginVO register(RegisterRequest request) {
-        Long exists = studentMapper.selectCount(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Student>()
-                        .eq(Student::getSno, request.getSno()));
+        // 注册查重必须【包含已逻辑删除的记录】：
+        // 走 selectCount 时，@TableLogic 会自动追加 deleted = 0，导致逻辑删除的学号
+        // "查重通过"，但 insert 时仍会撞上全表唯一索引 uk_student_sno，
+        // 最终返回 500 而不是 3002。改用手写 SQL 看到全部历史记录。
+        Long exists = studentMapper.countBySnoIncludingDeleted(request.getSno());
         if (exists != null && exists > 0) {
             throw new BusinessException(ErrorCode.SNO_ALREADY_EXISTS);
         }

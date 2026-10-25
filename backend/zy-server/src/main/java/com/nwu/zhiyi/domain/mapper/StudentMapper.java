@@ -71,4 +71,20 @@ public interface StudentMapper extends BaseMapper<Student> {
      */
     @Select("SELECT status, role FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
     Map<String, Object> selectAuthStateBySno(@Param("sno") String sno);
+
+    /**
+     * 按学号统计用户数 —— <b>包含已逻辑删除的记录</b>。
+     *
+     * <p><b>为什么不能用 selectCount + LambdaQueryWrapper</b>：{@link Student} 的
+     * {@code deleted} 字段标注了 {@code @TableLogic}，MyBatis-Plus 会自动追加
+     * {@code deleted = 0}。于是「已被逻辑删除的学号」查重会通过，但 insert 时仍会撞上
+     * 全表唯一索引 {@code uk_student_sno}，最终返回 500 而不是 3002。
+     *
+     * <p>注册查重必须看到历史记录，否则无法给出正确的业务提示。
+     *
+     * @param sno 学号
+     * @return 匹配行数（0 表示可注册）
+     */
+    @Select("SELECT COUNT(*) FROM zy_student WHERE sno = #{sno}")
+    Long countBySnoIncludingDeleted(@Param("sno") String sno);
 }
