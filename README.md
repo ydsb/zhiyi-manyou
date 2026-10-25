@@ -9,7 +9,7 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42B883)](https://vuejs.org/)
 [![MyBatis-Plus](https://img.shields.io/badge/MyBatis--Plus-3.5.7-red)](https://baomidou.com/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)](https://www.mysql.com/)
-[![Tests](https://img.shields.io/badge/tests-224%20backend%20%2B%2017%20frontend%20%2B%2047%20NLP-success)](#测试)
+[![Tests](https://img.shields.io/badge/tests-236%20backend%20%2B%2017%20frontend%20%2B%2047%20NLP-success)](#测试)
 
 ---
 
@@ -271,7 +271,7 @@ zhiyi-manyou-yueyong/
 ## 测试
 
 ```powershell
-# 后端单元测试（224 项）
+# 后端单元测试（236 项）
 . .\backend\build-env.ps1
 Push-Location backend
 mvn test
@@ -304,7 +304,7 @@ Pop-Location
 | `CollabViewTest` | 11 | 协作任务/文件/时间轴视图转换 |
 | `DemandContentAuditorTest` | 9 | 需求卡片内容审核 |
 | `EvaluationContentAuditorTest` | 9 | 互评内容审核（低分强制说明） |
-| **后端单元测试（Java）** | **224** | 全部通过 |
+| **后端单元测试（Java）** | **236** | 全部通过 |
 | **接口冒烟测试（PowerShell）** | **41** | 需服务已启动 |
 | `guard.test.ts`（前端） | **6** | 公开路由、登录跳转、首次引导、管理员权限、刷新后加载用户 |
 | `request.test.ts`（前端） | **4** | 令牌过期自动刷新、并发刷新合并、失败清理、认证接口防递归 |
