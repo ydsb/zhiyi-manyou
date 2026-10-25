@@ -1,5 +1,6 @@
 package com.nwu.zhiyi.service.evaluation;
 
+import com.nwu.zhiyi.security.RequireVerified;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nwu.zhiyi.api.dto.collab.ProcessSummaryVO;
 import com.nwu.zhiyi.api.dto.evaluation.EvaluationAmendRequest;
@@ -79,6 +80,7 @@ public class EvaluationServiceImpl implements EvaluationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @RequireVerified
     public EvaluationStatusVO submit(String fromSno, EvaluationSubmitRequest request) {
         ExchangeRecord record = exchangeMapper.selectById(request.getRecordId());
         if (record == null) {

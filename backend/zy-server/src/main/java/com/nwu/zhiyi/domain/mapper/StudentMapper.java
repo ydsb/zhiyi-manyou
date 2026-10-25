@@ -71,6 +71,9 @@ public interface StudentMapper extends BaseMapper<Student> {
      */
     @Select("SELECT status, role FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
     Map<String, Object> selectAuthStateBySno(@Param("sno") String sno);
+    /** 当前账号的实名核验状态；受限业务操作前校验（auth_status）。 */
+    @Select("SELECT auth_status FROM zy_student WHERE sno = #{sno} AND deleted = 0 LIMIT 1")
+    String selectAuthStatusBySno(@Param("sno") String sno);
 
     /**
      * 按学号统计用户数 —— <b>包含已逻辑删除的记录</b>。

@@ -74,6 +74,7 @@ public class SecurityConfig {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/refresh",
+            "/api/auth/logout",
             // 技能本体：图谱与检索对未登录用户开放，先展示平台价值
             "/api/skills/tree",
             "/api/skills/search",
@@ -125,7 +126,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 管理端与仲裁端
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/arbitration/**").hasAnyRole("ARBITRATOR", "ADMIN")
                         /*
                          * 集市个人接口必须显式要求登录，且必须放在下面的
                          * "/api/demands/**" 放行规则之前 —— 规则按声明顺序匹配，先命中者生效。

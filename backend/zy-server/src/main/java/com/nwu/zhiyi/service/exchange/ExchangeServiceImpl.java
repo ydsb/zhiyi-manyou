@@ -1,5 +1,6 @@
 package com.nwu.zhiyi.service.exchange;
 
+import com.nwu.zhiyi.security.RequireVerified;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nwu.zhiyi.api.dto.exchange.ExchangeApplyRequest;
@@ -77,6 +78,7 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @RequireVerified
     public Map<String, Object> apply(String applicantSno, ExchangeApplyRequest request) {
         // 1. 卡片校验（存在、开放、非本人发布、可见）
         Demand demand = demandService.requireApplicable(request.getDemandId(), applicantSno);

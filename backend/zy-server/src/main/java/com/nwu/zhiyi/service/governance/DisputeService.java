@@ -1,5 +1,6 @@
 package com.nwu.zhiyi.service.governance;
 
+import com.nwu.zhiyi.security.RequireVerified;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -124,6 +125,7 @@ public class DisputeService {
      * @return 争议详情
      */
     @Transactional(rollbackFor = Exception.class)
+    @RequireVerified
     public Map<String, Object> create(String applicantSno, DisputeCreateRequest request) {
         ExchangeRecord record = exchangeMapper.selectById(request.getRecordId());
         if (record == null) {
@@ -614,6 +616,7 @@ public class DisputeService {
 
     /** 记录一票（由 ArbitrationService 调用，统一在此维护计票） */
     @Transactional(rollbackFor = Exception.class)
+    @RequireVerified
     public void recordVote(Dispute dispute, String voterSno, String vote, String comment, String reason) {
         String payload = String.join("|", String.valueOf(dispute.getId()), voterSno, vote,
                 comment == null ? "-" : comment.trim(), LocalDateTime.now().toString());

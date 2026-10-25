@@ -120,8 +120,6 @@ zhiyi:
     # 低于该分值的候选不展示
     min-score: 0.35
   exchange:
-    # 默认并发进行中的交换上限
-    default-quota: 3
     # 超时未评价天数
     eval-timeout-days: 7
   credit:

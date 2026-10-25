@@ -11,6 +11,7 @@ import com.nwu.zhiyi.domain.mapper.UserSkillProfileMapper;
 import com.nwu.zhiyi.security.JwtTokenProvider;
 import com.nwu.zhiyi.security.RefreshTokenStore;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,6 +75,18 @@ class AuthServiceRegisterTest {
         verify(refreshTokenStore).register("refresh-jti", "2024999999");
     }
 
+    @Test
+    void duplicateInsertRaceIsTranslatedToAlreadyRegistered() {
+        when(studentMapper.countBySnoIncludingDeleted("2024888888")).thenReturn(0L);
+        when(passwordEncoder.encode("123456")).thenReturn("$2a$10$hashed");
+        when(studentMapper.insert(any(Student.class)))
+                .thenThrow(new DuplicateKeyException("Duplicate entry '2024888888' for key 'uk_student_sno'"));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.register(request("2024888888")));
+
+        assertEquals(ErrorCode.SNO_ALREADY_EXISTS, ex.getErrorCode());
+    }
     private static RegisterRequest request(String sno) {
         RegisterRequest request = new RegisterRequest();
         request.setSno(sno);

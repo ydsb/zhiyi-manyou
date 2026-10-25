@@ -1,5 +1,6 @@
 package com.nwu.zhiyi.service.demand;
 
+import com.nwu.zhiyi.security.RequireVerified;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nwu.zhiyi.api.dto.demand.DemandCreateRequest;
@@ -80,6 +81,7 @@ public class DemandServiceImpl implements DemandService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @RequireVerified
     public MarketCardVO create(String ownerSno, DemandCreateRequest request) {
         Skill expected = requireSkill(request.getExpectedSkillId(), "期望技能");
         Skill offer = request.getOfferSkillId() == null ? null

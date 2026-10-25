@@ -1,5 +1,6 @@
 package com.nwu.zhiyi.service.profile;
 
+import com.nwu.zhiyi.security.RequireVerified;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -89,6 +90,7 @@ public class DataExportService {
      * @param sno 学号（取自登录态）
      * @return 结构化导出数据
      */
+    @RequireVerified
     public DataExportVO export(String sno) {
         Student student = studentMapper.selectOne(
                 new LambdaQueryWrapper<Student>().eq(Student::getSno, sno));

@@ -21,6 +21,7 @@ import com.nwu.zhiyi.security.TokenAuthException;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -113,10 +114,16 @@ public class AuthService {
                 .setRole(UserRole.USER)
                 .setCreditScore(100)
                 .setCreditLevel(CreditLevel.of(CreditLevel.INIT_SCORE).levelCode())
-                .setExchangeQuota(3)
+                .setExchangeQuota(CreditLevel.of(CreditLevel.INIT_SCORE).getExchangeQuota())
                 .setStatus(1)
                 .setLastLoginAt(LocalDateTime.now());
-        studentMapper.insert(student);
+        try {
+            studentMapper.insert(student);
+        } catch (DuplicateKeyException e) {
+            // 并发注册：两个请求都通过了查重，唯一索引是最终防线。
+            // 不处理的话会落到全局兜底变成 500，这里转成友好的 3002。
+            throw new BusinessException(ErrorCode.SNO_ALREADY_EXISTS);
+        }
 
         log.info("[注册成功] sno={} college={}", student.getSno(), student.getCollege());
         return buildLoginVO(student, true);
