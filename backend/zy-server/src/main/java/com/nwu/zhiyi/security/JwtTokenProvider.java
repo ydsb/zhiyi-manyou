@@ -187,6 +187,25 @@ public class JwtTokenProvider {
         return claims == null ? null : claims.getId();
     }
 
+    /**
+     * 从已验签令牌中读取 jti，<b>不检查撤销状态</b>。
+     *
+     * <p>用于「登记/删除刷新令牌白名单」：新签发的令牌还没登记，已撤销的令牌又读不到 jti，
+     * 所以这里只做验签，不做撤销判断。解析失败返回 null。
+     *
+     * @param token JWT 字符串
+     * @return jti，解析失败返回 null
+     */
+    public String getJtiFromSignedToken(String token) {
+        try {
+            Claims claims = parseSignedClaims(token);
+            return claims == null ? null : claims.getId();
+        } catch (Exception e) {
+            log.debug("读取令牌 jti 失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
     private Claims parseSignedClaims(String token) {
         Jws<Claims> jws = Jwts.parserBuilder()
                 .setSigningKey(signingKey())

@@ -16,6 +16,8 @@ import com.nwu.zhiyi.domain.entity.Student;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import com.nwu.zhiyi.domain.mapper.UserSkillProfileMapper;
 import com.nwu.zhiyi.security.JwtTokenProvider;
+import com.nwu.zhiyi.security.RefreshTokenStore;
+import com.nwu.zhiyi.security.TokenAuthException;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,7 @@ public class AuthService {
     private final UserSkillProfileMapper userSkillProfileMapper;
     private final JwtTokenProvider tokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenStore refreshTokenStore;
 
     /**
      * 账号密码登录。
@@ -132,6 +135,11 @@ public class AuthService {
         // 因其继承 BusinessException，会自然冒泡到全局异常处理器。
         Claims claims = tokenProvider.parseRefreshToken(refreshToken);
         String sno = claims.getSubject();
+        // 刷新令牌白名单 + 一次性消费：并发刷新时只有一个请求能成功。
+        // 失败原因用 2003（令牌无效/已失效），前端会引导重新登录。
+        if (!refreshTokenStore.consume(claims.getId(), sno)) {
+            throw new TokenAuthException(ErrorCode.TOKEN_INVALID, "刷新令牌已失效，请重新登录");
+        }
         Student student = studentMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Student>()
                         .eq(Student::getSno, sno));
@@ -276,11 +284,42 @@ public class AuthService {
                 .build();
     }
 
+    /**
+     * 退出登录。
+     *
+     * <p>access token 加入 jti 黑名单（立即失效）；refresh token 从白名单删除（无法再刷新）。
+     * 两者相互独立：只删 refresh 的话，access 在过期前仍然可用。
+     *
+     * @param accessToken  请求头里的 access token，可为空
+     * @param refreshToken 请求体里的 refresh token，可为空
+     */
+    public void logout(String accessToken, String refreshToken) {
+        if (StrUtil.isNotBlank(accessToken)) {
+            tokenProvider.revoke(accessToken);
+        }
+        if (StrUtil.isNotBlank(refreshToken)) {
+            String jti = tokenProvider.getJtiFromSignedToken(refreshToken);
+            if (jti != null) {
+                refreshTokenStore.revoke(jti);
+            }
+        }
+    }
+
     private LoginVO buildLoginVO(Student student, boolean firstLogin) {
         UserRole role = student.getRole() == null ? UserRole.USER : student.getRole();
+        String accessToken = tokenProvider.createAccessToken(student.getSno(), role);
+        String refreshToken = tokenProvider.createRefreshToken(student.getSno(), role);
+
+        // 刷新令牌白名单：只登记 jti -> sno，不保存令牌本身。
+        // 没有登记过的 refresh token 一律不能用于刷新（默认无效）。
+        String refreshJti = tokenProvider.getJtiFromSignedToken(refreshToken);
+        if (refreshJti != null) {
+            refreshTokenStore.register(refreshJti, student.getSno());
+        }
+
         return LoginVO.builder()
-                .accessToken(tokenProvider.createAccessToken(student.getSno(), role))
-                .refreshToken(tokenProvider.createRefreshToken(student.getSno(), role))
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .expiresIn(tokenProvider.getExpireSeconds())
                 .firstLogin(firstLogin)

@@ -8,7 +8,6 @@ import com.nwu.zhiyi.api.dto.UserInfoVO;
 import com.nwu.zhiyi.common.api.ApiResponse;
 import com.nwu.zhiyi.common.api.ErrorCode;
 import com.nwu.zhiyi.common.exception.BusinessException;
-import com.nwu.zhiyi.security.JwtTokenProvider;
 import com.nwu.zhiyi.security.LoginProtectionService;
 import com.nwu.zhiyi.security.RequestRateLimiter;
 import com.nwu.zhiyi.security.SecurityUtils;
@@ -39,7 +38,6 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
-    private final JwtTokenProvider tokenProvider;
     private final LoginProtectionService loginProtectionService;
     private final RequestRateLimiter requestRateLimiter;
 
@@ -99,7 +97,8 @@ public class AuthController {
     /**
      * 退出登录。
      *
-     * <p>撤销当前访问令牌，前端随后清除本地令牌。
+     * <p>access token 加入 jti 黑名单（立即失效）；refresh token 从白名单删除（无法再刷新）。
+     * 前端随后清除本地令牌。
      *
      * <pre>POST /api/auth/logout</pre>
      */
@@ -107,12 +106,11 @@ public class AuthController {
     public ApiResponse<Void> logout(HttpServletRequest request,
                                     @RequestBody(required = false) Map<String, String> body) {
         String header = request.getHeader("Authorization");
-        if (header != null && header.startsWith("Bearer ")) {
-            tokenProvider.revoke(header.substring("Bearer ".length()).trim());
-        }
-        if (body != null && body.get("refreshToken") != null) {
-            tokenProvider.revoke(body.get("refreshToken"));
-        }
+        String accessToken = header != null && header.startsWith("Bearer ")
+                ? header.substring("Bearer ".length()).trim()
+                : null;
+        String refreshToken = body == null ? null : body.get("refreshToken");
+        authService.logout(accessToken, refreshToken);
         return ApiResponse.success("已退出登录", null);
     }
 

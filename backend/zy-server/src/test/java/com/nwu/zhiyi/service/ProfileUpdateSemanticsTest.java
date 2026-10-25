@@ -85,10 +85,10 @@ class ProfileUpdateSemanticsTest {
     private AuthService serviceWith(StudentMapper mapper) {
         /*
          * AuthService 的构造顺序（Lombok @RequiredArgsConstructor 按字段声明序）：
-         *   studentMapper, userSkillProfileMapper, tokenProvider, passwordEncoder
+         *   studentMapper, userSkillProfileMapper, tokenProvider, passwordEncoder, refreshTokenStore
          * 本测试只走 updateProfile 这一条路径，其余依赖不会被触及，传 null 即可。
          */
-        return new AuthService(mapper, null, null, new BCryptPasswordEncoder(4));
+        return new AuthService(mapper, null, null, new BCryptPasswordEncoder(4), null);
     }
 
     private Student sampleStudent() {

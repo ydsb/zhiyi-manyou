@@ -9,6 +9,7 @@ import com.nwu.zhiyi.domain.entity.Student;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import com.nwu.zhiyi.domain.mapper.UserSkillProfileMapper;
 import com.nwu.zhiyi.security.JwtTokenProvider;
+import com.nwu.zhiyi.security.RefreshTokenStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -35,9 +36,10 @@ class AuthServiceRegisterTest {
     private final UserSkillProfileMapper profileMapper = mock(UserSkillProfileMapper.class);
     private final JwtTokenProvider tokenProvider = mock(JwtTokenProvider.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+    private final RefreshTokenStore refreshTokenStore = mock(RefreshTokenStore.class);
 
     private final AuthService authService =
-            new AuthService(studentMapper, profileMapper, tokenProvider, passwordEncoder);
+            new AuthService(studentMapper, profileMapper, tokenProvider, passwordEncoder, refreshTokenStore);
 
     @Test
     void logicallyDeletedSnoIsRejectedAsAlreadyRegistered() {
@@ -50,6 +52,7 @@ class AuthServiceRegisterTest {
         // 查重命中后不应该再插入、也不应该做密码加密
         verify(studentMapper, never()).insert(any(Student.class));
         verifyNoInteractions(passwordEncoder);
+        verifyNoInteractions(refreshTokenStore);
     }
 
     @Test
@@ -58,6 +61,7 @@ class AuthServiceRegisterTest {
         when(passwordEncoder.encode("123456")).thenReturn("$2a$10$hashed");
         when(tokenProvider.createAccessToken(anyString(), any(UserRole.class))).thenReturn("access-token");
         when(tokenProvider.createRefreshToken(anyString(), any(UserRole.class))).thenReturn("refresh-token");
+        when(tokenProvider.getJtiFromSignedToken("refresh-token")).thenReturn("refresh-jti");
         when(tokenProvider.getExpireSeconds()).thenReturn(43200L);
 
         LoginVO result = authService.register(request("2024999999"));
@@ -67,6 +71,7 @@ class AuthServiceRegisterTest {
         assertEquals("refresh-token", result.getRefreshToken());
         assertEquals(Boolean.TRUE, result.getFirstLogin());
         verify(studentMapper).insert(any(Student.class));
+        verify(refreshTokenStore).register("refresh-jti", "2024999999");
     }
 
     private static RegisterRequest request(String sno) {
