@@ -56,13 +56,64 @@ const http: AxiosInstance = axios.create({
 })
 
 type RetryableRequestConfig = AxiosRequestConfig & { _tokenRefreshRetried?: boolean }
+/**
+ * 正在进行的刷新请求（同一标签页内的 single-flight）。
+ */
 let refreshing: Promise<string | null> | null = null
 
+/** 认证入口（登录/注册/刷新/登出）不参与静默刷新，避免递归。 */
 function isAuthEndpoint(url?: string): boolean {
   return typeof url === 'string' && /(?:^|\/)auth\/(login|register|refresh|logout)(?:$|\?)/.test(url)
 }
 
+/** 跨标签页协调用的锁名（Web Locks API 按 origin 共享）。 */
+const REFRESH_LOCK_NAME = 'zhiyi.refreshToken'
+
+type LockManagerLike = {
+  request: <T>(name: string, callback: () => Promise<T>) => Promise<T>
+}
+
+/**
+ * 刷新访问令牌。
+ *
+ * 两层去重：
+ *  1. 跨标签页：Web Locks API 串行化（不支持的浏览器自动退化为单页去重）；
+ *  2. 同一标签页：refreshing 单飞。
+ *
+ * 拿到跨页锁后先看 localStorage：如果等锁期间别的标签页已经刷新成功，
+ * 直接复用新令牌，避免用已被消费的 refresh token 再刷一次
+ * （B 方案下 refresh token 是一次性的，重复刷新会得到 2003）。
+ */
 async function refreshAccessToken(): Promise<string | null> {
+  if (!tokenStorage.getRefresh()) return null
+
+  const before = tokenStorage.getAccess()
+
+  const run = (): Promise<string | null> => {
+    const current = tokenStorage.getAccess()
+    if (current && current !== before) {
+      // 等锁期间已有其他标签页完成刷新
+      return Promise.resolve(current)
+    }
+    return refreshAccessTokenSingleTab()
+  }
+
+  const locks = typeof navigator !== 'undefined'
+    ? (navigator as Navigator & { locks?: LockManagerLike }).locks
+    : undefined
+
+  if (locks) {
+    try {
+      return await locks.request(REFRESH_LOCK_NAME, run)
+    } catch {
+      return null
+    }
+  }
+  return run()
+}
+
+/** 同一标签页内的单飞刷新（原逻辑）。 */
+async function refreshAccessTokenSingleTab(): Promise<string | null> {
   const refreshToken = tokenStorage.getRefresh()
   if (!refreshToken) return null
   if (!refreshing) {
