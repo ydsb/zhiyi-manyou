@@ -1,6 +1,7 @@
 package com.nwu.zhiyi.service.demand;
 
 import com.nwu.zhiyi.security.RequireVerified;
+import com.nwu.zhiyi.security.RequestRateLimiter;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nwu.zhiyi.api.dto.demand.DemandCreateRequest;
@@ -25,10 +26,12 @@ import com.nwu.zhiyi.domain.mapper.SkillMapper;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -65,6 +68,7 @@ public class DemandServiceImpl implements DemandService {
     private final StudentMapper studentMapper;
     private final DemandCardAssembler assembler;
     private final DemandContentAuditor auditor;
+    private final RequestRateLimiter requestRateLimiter;
 
     /** 匹配度精排时的最大候选集（防止全表载入内存） */
     private static final int MAX_MATCH_CANDIDATES = 300;
@@ -77,12 +81,32 @@ public class DemandServiceImpl implements DemandService {
 
     private static final DateTimeFormatter NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 
+    /** 相同用户、相同卡片内容的短时防抖窗口，最终一致性仍由数据库唯一索引保证。 */
+    private static final Duration CREATE_DEDUPE_WINDOW = Duration.ofSeconds(3);
+
     /* ==================== 发布 ==================== */
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     @RequireVerified
     public MarketCardVO create(String ownerSno, DemandCreateRequest request) {
+        String normalizedTitle = request.getTitle().trim();
+        String normalizedDescription = trimToNull(request.getDescription());
+        String normalizedPeriod = trimToNull(request.getExpectedPeriod());
+        DemandVisibility visibility = parseVisibility(request.getVisibility());
+        LocalDateTime expireAt = parseDateTime(request.getExpireAt());
+        String dedupeHash = DemandFingerprint.of(normalizedTitle, normalizedDescription,
+                request.getExpectedSkillId(), request.getOfferSkillId(), request.getExpectedHours(),
+                normalizedPeriod, visibility, expireAt);
+
+        // 短时防抖：Redis 模式下使用 Lua 保证 INCR+PEXPIRE 原子性；本地模式使用同语义的内存实现。
+        // 该锁只优化重复请求，最终不重复仍由数据库 (owner_sno, active_dedupe_hash) 唯一索引保证。
+        String guardKey = "demand:create:dedupe:" + ownerSno + ":" + dedupeHash;
+        if (!requestRateLimiter.tryAcquire(guardKey, 1, CREATE_DEDUPE_WINDOW)) {
+            throw new BusinessException(ErrorCode.DEMAND_DUPLICATE_OPEN,
+                    "相同内容正在提交，请勿在 3 秒内重复发布");
+        }
+
         Skill expected = requireSkill(request.getExpectedSkillId(), "期望技能");
         Skill offer = request.getOfferSkillId() == null ? null
                 : requireSkill(request.getOfferSkillId(), "回馈技能");
@@ -92,35 +116,37 @@ public class DemandServiceImpl implements DemandService {
                     "期望技能与回馈技能不能相同，否则不构成「以技易技」");
         }
 
-        DemandVisibility visibility = parseVisibility(request.getVisibility());
-
-        // 内容审核（FR-M4-07）
-        DemandContentAuditor.Result audit = auditor.audit(request.getTitle(), request.getDescription());
+        DemandContentAuditor.Result audit = auditor.audit(normalizedTitle, normalizedDescription);
         if (audit.status() == AuditStatus.REJECTED) {
             throw new BusinessException(ErrorCode.DEMAND_CONTENT_REJECTED, audit.remark());
         }
 
         Demand demand = new Demand()
                 .setDemandNo(generateDemandNo())
+                .setDedupeHash(dedupeHash)
                 .setOwnerSno(ownerSno)
-                .setTitle(request.getTitle().trim())
-                .setDescription(trimToNull(request.getDescription()))
+                .setTitle(normalizedTitle)
+                .setDescription(normalizedDescription)
                 .setExpectedSkillId(expected.getId())
                 .setOfferSkillId(offer == null ? null : offer.getId())
                 .setExpectedHours(request.getExpectedHours())
-                .setExpectedPeriod(trimToNull(request.getExpectedPeriod()))
+                .setExpectedPeriod(normalizedPeriod)
                 .setVisibility(visibility)
                 .setStatus(DemandStatus.OPEN)
                 .setMatchCount(0)
                 .setViewCount(0)
                 .setAuditStatus(audit.status())
                 .setAuditRemark(audit.remark())
-                .setExpireAt(parseDateTime(request.getExpireAt()));
-        demandMapper.insert(demand);
+                .setExpireAt(expireAt);
+        try {
+            demandMapper.insert(demand);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(ErrorCode.DEMAND_DUPLICATE_OPEN);
+        }
 
-        log.info("[需求发布] no={} owner={} 期望={} 回馈={} 审核={}",
+        log.info("[需求发布] no={} owner={} 期望={} 回馈={} 审核={} dedupe={}",
                 demand.getDemandNo(), ownerSno, expected.getName(),
-                offer == null ? "-" : offer.getName(), audit.status());
+                offer == null ? "-" : offer.getName(), audit.status(), dedupeHash);
 
         return assembler.assembleOne(demand, ownerSno, false);
     }
@@ -250,43 +276,60 @@ public class DemandServiceImpl implements DemandService {
             throw new BusinessException(ErrorCode.DEMAND_NOT_OPEN, "已关闭的卡片不可修改");
         }
 
-        Demand update = new Demand().setId(demandId);
-        if (StringUtils.hasText(request.getTitle())) {
-            update.setTitle(request.getTitle().trim());
-        }
-        if (request.getDescription() != null) {
-            update.setDescription(trimToNull(request.getDescription()));
-        }
+        String effectiveTitle = StringUtils.hasText(request.getTitle())
+                ? request.getTitle().trim() : demand.getTitle();
+        String effectiveDescription = request.getDescription() != null
+                ? trimToNull(request.getDescription()) : demand.getDescription();
+        Long effectiveOfferSkillId = demand.getOfferSkillId();
+        Integer effectiveHours = request.getExpectedHours() != null
+                ? request.getExpectedHours() : demand.getExpectedHours();
+        String effectivePeriod = request.getExpectedPeriod() != null
+                ? trimToNull(request.getExpectedPeriod()) : demand.getExpectedPeriod();
+        DemandVisibility effectiveVisibility = StringUtils.hasText(request.getVisibility())
+                ? parseVisibility(request.getVisibility()) : demand.getVisibility();
+
         if (request.getOfferSkillId() != null) {
             Skill offer = requireSkill(request.getOfferSkillId(), "回馈技能");
             if (offer.getId().equals(demand.getExpectedSkillId())) {
                 throw new BusinessException(ErrorCode.EXCHANGE_SKILL_REQUIRED);
             }
-            update.setOfferSkillId(offer.getId());
+            effectiveOfferSkillId = offer.getId();
         }
-        if (request.getExpectedHours() != null) {
-            update.setExpectedHours(request.getExpectedHours());
+
+        String dedupeHash = DemandFingerprint.of(effectiveTitle, effectiveDescription,
+                demand.getExpectedSkillId(), effectiveOfferSkillId, effectiveHours, effectivePeriod,
+                effectiveVisibility, demand.getExpireAt());
+
+        Demand update = new Demand()
+                .setId(demandId)
+                .setTitle(effectiveTitle)
+                .setDedupeHash(dedupeHash)
+                .setOfferSkillId(effectiveOfferSkillId)
+                .setExpectedHours(effectiveHours)
+                .setVisibility(effectiveVisibility);
+        // 描述和期望时间段允许通过空字符串清空；空串与 null 在指纹中都会被规范化。
+        if (request.getDescription() != null) {
+            update.setDescription(request.getDescription().trim());
         }
         if (request.getExpectedPeriod() != null) {
-            update.setExpectedPeriod(trimToNull(request.getExpectedPeriod()));
-        }
-        if (StringUtils.hasText(request.getVisibility())) {
-            update.setVisibility(parseVisibility(request.getVisibility()));
+            update.setExpectedPeriod(request.getExpectedPeriod().trim());
         }
 
         // 标题或详述变更时重新审核
         if (StringUtils.hasText(request.getTitle()) || request.getDescription() != null) {
-            String title = StringUtils.hasText(request.getTitle()) ? request.getTitle() : demand.getTitle();
-            String desc = request.getDescription() != null ? request.getDescription() : demand.getDescription();
-            DemandContentAuditor.Result audit = auditor.audit(title, desc);
+            DemandContentAuditor.Result audit = auditor.audit(effectiveTitle, effectiveDescription);
             if (audit.status() == AuditStatus.REJECTED) {
                 throw new BusinessException(ErrorCode.DEMAND_CONTENT_REJECTED, audit.remark());
             }
             update.setAuditStatus(audit.status()).setAuditRemark(audit.remark());
         }
 
-        demandMapper.updateById(update);
-        log.info("[需求修改] id={} operator={}", demandId, operator);
+        try {
+            demandMapper.updateById(update);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(ErrorCode.DEMAND_DUPLICATE_OPEN);
+        }
+        log.info("[需求修改] id={} operator={} dedupe={}", demandId, operator, dedupeHash);
         return assembler.assembleOne(demandMapper.selectById(demandId), operator, true);
     }
 

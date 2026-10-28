@@ -56,7 +56,7 @@ public interface DemandMapper extends BaseMapper<Demand> {
      * @return 卡片列表（含已删除）
      */
     @org.apache.ibatis.annotations.Select("<script>"
-            + "SELECT id, demand_no, owner_sno, title, description, expected_skill_id, offer_skill_id, "
+            + "SELECT id, demand_no, dedupe_hash, owner_sno, title, description, expected_skill_id, offer_skill_id, "
             + "expected_hours, expected_period, visibility, status, match_count, view_count, "
             + "audit_status, audit_remark, expire_at, created_at, updated_at "
             + "FROM zy_demand WHERE id IN "

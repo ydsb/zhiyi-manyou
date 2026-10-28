@@ -69,6 +69,7 @@ public enum ErrorCode {
     PENDING_INTEREST_LIMIT(3028, "你待响应的交换邀约过多，请先处理现有邀约"),
     EXCHANGE_SKILL_REQUIRED(3029, "交换双方技能不能相同"),
     AUDIT_PENDING(3030, "内容需人工复核，暂时无法公开"),
+    DEMAND_DUPLICATE_OPEN(3031, "相同需求正在招募中，请勿重复发布"),
 
     /* ---------------- 3xxx 协作工作台（M5） ---------------- */
     WORKSPACE_NOT_AVAILABLE(3040, "该交换尚未进入协作阶段"),

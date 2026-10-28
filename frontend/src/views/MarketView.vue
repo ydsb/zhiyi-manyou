@@ -397,7 +397,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="publishVisible = false">取消</el-button>
-        <el-button type="primary" :loading="publishing" @click="publish">发布</el-button>
+        <el-button type="primary" :loading="publishing" :disabled="publishing" @click="publish">发布</el-button>
       </template>
     </el-dialog>
 

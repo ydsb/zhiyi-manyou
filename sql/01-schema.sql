@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS `zy_demand`
 (
     `id`               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `demand_no`        VARCHAR(32)  NOT NULL COMMENT '业务编号（对外展示，如 DM2026xxxx）',
+    `dedupe_hash`      CHAR(64)     NOT NULL COMMENT '用户可编辑业务内容的规范化 SHA-256 指纹',
     `owner_sno`        VARCHAR(32)  NOT NULL COMMENT '发布人学号',
     `title`            VARCHAR(200) NOT NULL COMMENT '标题',
     `description`      TEXT                  DEFAULT NULL COMMENT '需求详述',
@@ -171,8 +172,12 @@ CREATE TABLE IF NOT EXISTS `zy_demand`
     `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`          TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0正常 1已删除',
+    `active_dedupe_hash` CHAR(64) GENERATED ALWAYS AS (
+        CASE WHEN `status` = 'OPEN' AND `deleted` = 0 THEN `dedupe_hash` ELSE NULL END
+    ) STORED COMMENT '仅开放卡片参与的活跃去重指纹',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_demand_no` (`demand_no`),
+    UNIQUE KEY `uk_demand_owner_active_dedupe` (`owner_sno`, `active_dedupe_hash`),
     KEY `idx_demand_owner` (`owner_sno`),
     KEY `idx_demand_expected_skill` (`expected_skill_id`),
     KEY `idx_demand_offer_skill` (`offer_skill_id`),
@@ -683,10 +688,10 @@ ON DUPLICATE KEY UPDATE `weight` = VALUES(`weight`);
 
 -- 需求卡片示例（供需集市，FR-M4-01）
 -- 语义提醒：expected_skill_id 是"我急需"，offer_skill_id 是"我可提供"
-INSERT INTO `zy_demand` (`demand_no`, `owner_sno`, `title`, `description`,
+INSERT INTO `zy_demand` (`demand_no`, `dedupe_hash`, `owner_sno`, `title`, `description`,
                          `expected_skill_id`, `offer_skill_id`, `expected_hours`,
                          `expected_period`, `visibility`, `status`)
-SELECT 'DM20260701001', '2024117421',
+SELECT 'DM20260701001', SHA2('seed:DM20260701001', 256), '2024117421',
        '需要会做动态交互效果的同学，帮我把作品集页面做得"活"一点',
        '已有 Vue3 静态页面，希望加入滚动视差、卡片翻转与页面过渡动画。我可以教你数学建模，或者帮你做实验数据处理。',
        s1.id, s2.id, 8, '工作日晚间 / 周末下午', 'PUBLIC', 'OPEN'
@@ -694,10 +699,10 @@ FROM `zy_skill` s1, `zy_skill` s2
 WHERE s1.name = 'JS 动画与交互实现' AND s2.name = '数学建模'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `description` = VALUES(`description`);
 
-INSERT INTO `zy_demand` (`demand_no`, `owner_sno`, `title`, `description`,
+INSERT INTO `zy_demand` (`demand_no`, `dedupe_hash`, `owner_sno`, `title`, `description`,
                          `expected_skill_id`, `offer_skill_id`, `expected_hours`,
                          `expected_period`, `visibility`, `status`)
-SELECT 'DM20260701002', '2024117422',
+SELECT 'DM20260701002', SHA2('seed:DM20260701002', 256), '2024117422',
        '毕设需要一组可交互的可视化图表，求 ECharts 指导',
        '数据已清洗完毕，需要指导 ECharts 配置与交互设计。我可以提供英语口语陪练或论文润色。',
        s1.id, s2.id, 6, '周末全天', 'PUBLIC', 'OPEN'
@@ -705,10 +710,10 @@ FROM `zy_skill` s1, `zy_skill` s2
 WHERE s1.name = 'ECharts 数据可视化' AND s2.name = '英语口语陪练'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `description` = VALUES(`description`);
 
-INSERT INTO `zy_demand` (`demand_no`, `owner_sno`, `title`, `description`,
+INSERT INTO `zy_demand` (`demand_no`, `dedupe_hash`, `owner_sno`, `title`, `description`,
                          `expected_skill_id`, `offer_skill_id`, `expected_hours`,
                          `expected_period`, `visibility`, `status`)
-SELECT 'DM20260701003', '2024117420',
+SELECT 'DM20260701003', SHA2('seed:DM20260701003', 256), '2024117420',
        '想学 Python 数据爬取，愿意用视频剪辑交换',
        '需要采集公开论文元数据用于文献综述。我熟悉 PR / 剪映，可以帮你剪竞赛答辩视频。',
        s1.id, s2.id, 10, '寒假期间', 'PUBLIC', 'OPEN'
@@ -716,10 +721,10 @@ FROM `zy_skill` s1, `zy_skill` s2
 WHERE s1.name = '数据爬取与清洗' AND s2.name = '视频剪辑'
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `description` = VALUES(`description`);
 
-INSERT INTO `zy_demand` (`demand_no`, `owner_sno`, `title`, `description`,
+INSERT INTO `zy_demand` (`demand_no`, `dedupe_hash`, `owner_sno`, `title`, `description`,
                          `expected_skill_id`, `offer_skill_id`, `expected_hours`,
                          `expected_period`, `visibility`, `status`)
-SELECT 'DM20260701004', '2024117421',
+SELECT 'DM20260701004', SHA2('seed:DM20260701004', 256), '2024117421',
        '求助：实验数据统计方法与图表呈现',
        '生物学实验数据需要合适的统计检验与图表呈现。可提供实验设计辅导作为交换。',
        s1.id, s2.id, 5, '平日下午', 'COLLEGE', 'OPEN'

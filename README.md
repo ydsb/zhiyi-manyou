@@ -126,6 +126,9 @@ mysql -u root -p < sql/07-migration-m9.sql
 
 # 启用数据库通知 outbox（可选；启用 ZHIYI_NOTIFICATION_DELIVERY=outbox 前必须执行）
 mysql -u root -p < sql/11-migration-notification-outbox.sql
+
+# 启用需求卡片的开放态内容去重（新增 dedupe_hash 与 active_dedupe_hash 唯一索引）
+mysql -u root -p < sql/12-migration-demand-dedupe.sql
 ```
 
 ### 2. 配置凭据（**仓库中不含任何真实密码**）

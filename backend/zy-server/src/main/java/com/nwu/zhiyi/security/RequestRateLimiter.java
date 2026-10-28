@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * 轻量固定窗口限流器。
  *
- * <p>限流状态当前保存在本机内存，适用于单实例开发环境；多实例部署时应迁移到 Redis。
+ * <p>默认使用本机内存，适用于单实例开发环境；配置 {@code zhiyi.security.state-store=redis}\n * 后切换为 Redis 原子固定窗口，供多实例共享。
  */
 @Component
 public class RequestRateLimiter {

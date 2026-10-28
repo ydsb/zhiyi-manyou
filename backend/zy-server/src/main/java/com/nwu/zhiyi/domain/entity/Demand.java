@@ -45,6 +45,9 @@ public class Demand implements Serializable {
     /** 业务编号（对外展示，如 DM20260701001） */
     private String demandNo;
 
+    /** 用户可编辑业务内容的规范化 SHA-256 指纹，用于开放卡片去重 */
+    private String dedupeHash;
+
     /** 发布人学号 */
     private String ownerSno;
 
