@@ -129,6 +129,9 @@ mysql -u root -p < sql/11-migration-notification-outbox.sql
 
 # 启用需求卡片的开放态内容去重（新增 dedupe_hash 与 active_dedupe_hash 唯一索引）
 mysql -u root -p < sql/12-migration-demand-dedupe.sql
+
+# 修复历史交换完成后需求卡片仍处于 OPEN 的状态不一致
+mysql -u root -p < sql/13-repair-exchange-demand-state.sql
 ```
 
 ### 2. 配置凭据（**仓库中不含任何真实密码**）
@@ -636,3 +639,4 @@ JSON Schema 可直接喂给 LLM 的函数调用协议：
 本项目基于 [MIT License](LICENSE) 开源 —— 可自由使用、修改与分发，请保留版权声明。
 
 本项目为大学生创新训练计划项目成果。如需引用或合作，欢迎通过仓库 Issue 联系。
+
