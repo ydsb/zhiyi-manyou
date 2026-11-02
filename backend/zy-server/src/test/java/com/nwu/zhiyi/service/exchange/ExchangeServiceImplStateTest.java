@@ -8,6 +8,7 @@ import com.nwu.zhiyi.domain.entity.Demand;
 import com.nwu.zhiyi.domain.entity.ExchangeRecord;
 import com.nwu.zhiyi.domain.mapper.DemandInterestMapper;
 import com.nwu.zhiyi.domain.mapper.DemandMapper;
+import com.nwu.zhiyi.domain.mapper.EvaluationGradeMapper;
 import com.nwu.zhiyi.domain.mapper.ExchangeRecordMapper;
 import com.nwu.zhiyi.domain.mapper.SkillMapper;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
@@ -36,6 +37,7 @@ class ExchangeServiceImplStateTest {
     private ExchangeRecordMapper exchangeMapper;
     private DemandMapper demandMapper;
     private StudentMapper studentMapper;
+    private EvaluationGradeMapper evaluationMapper;
     private ExchangeServiceImpl service;
 
     @BeforeEach
@@ -45,11 +47,12 @@ class ExchangeServiceImplStateTest {
         DemandInterestMapper interestMapper = mock(DemandInterestMapper.class);
         SkillMapper skillMapper = mock(SkillMapper.class);
         studentMapper = mock(StudentMapper.class);
+        evaluationMapper = mock(EvaluationGradeMapper.class);
         DemandService demandService = mock(DemandService.class);
         WorkspaceService workspaceService = mock(WorkspaceService.class);
         NotificationService notificationService = mock(NotificationService.class);
         service = new ExchangeServiceImpl(exchangeMapper, demandMapper, interestMapper,
-                skillMapper, studentMapper, demandService, workspaceService, notificationService);
+                skillMapper, studentMapper, evaluationMapper, demandService, workspaceService, notificationService);
     }
 
     @Test
@@ -78,6 +81,7 @@ class ExchangeServiceImplStateTest {
         Demand demand = new Demand().setId(10L).setStatus(DemandStatus.MATCHED);
         when(exchangeMapper.selectById(1L)).thenReturn(record);
         when(demandMapper.selectById(10L)).thenReturn(demand);
+        when(evaluationMapper.countByRecord(1L)).thenReturn(2);
         when(studentMapper.selectBriefBySnos(anyCollection())).thenReturn(List.of());
 
         service.completeAfterEvaluation("giver", 1L);

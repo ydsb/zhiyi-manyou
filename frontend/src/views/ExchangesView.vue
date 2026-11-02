@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { demandApi, exchangeApi, metaApi } from '@/api/demand'
 import type { DemandInterest, Exchange, ExchangeStatusMeta } from '@/api/types'
+import { evaluationApi, type EvaluationScoreKey, type EvaluationStatus } from '@/api/evaluation'
 
 /**
  * 我的交换（FR-M4-04 状态机 / FR-M4-05 邀约响应 / FR-M4-06 以技易技 / FR-M4-09 配额）。
@@ -26,6 +27,34 @@ const filter = ref<'ALL' | 'ONGOING' | 'DONE'>('ALL')
 const activeTab = ref<'exchanges' | 'received' | 'sent'>('exchanges')
 
 const ONGOING = ['NEGOTIATING', 'IN_PROGRESS', 'PENDING_EVAL', 'DISPUTED']
+
+const EVALUATION_DIMENSIONS: Array<{ key: EvaluationScoreKey; label: string; hint: string }> = [
+  { key: 'task_completion', label: '任务完成度', hint: '是否按约定完成任务拆解，有无烂尾' },
+  { key: 'delivery_quality', label: '交付质量', hint: '成果是否可用、是否需要返工' },
+  { key: 'communication', label: '沟通效率', hint: '响应速度、信息清晰度与配合度' },
+  { key: 'cross_discipline', label: '跨专业协作能力', hint: '能否理解对方语境并清晰表达' }
+]
+
+const evaluationVisible = ref(false)
+const evaluationLoading = ref(false)
+const evaluationSubmitting = ref(false)
+const evaluationStatus = ref<EvaluationStatus | null>(null)
+const evaluationForm = reactive({
+  scores: {
+    task_completion: 80,
+    delivery_quality: 80,
+    communication: 80,
+    cross_discipline: 80
+  } as Record<EvaluationScoreKey, number>,
+  comment: '',
+  anonymous: false
+})
+
+const evaluationTotal = computed(() =>
+  EVALUATION_DIMENSIONS.reduce((sum, d) => sum + Number(evaluationForm.scores[d.key] || 0), 0) /
+  EVALUATION_DIMENSIONS.length
+)
+
 
 const list = computed(() =>
   exchanges.value.filter((e) => {
@@ -197,6 +226,52 @@ async function transition(ex: Exchange, target: string) {
   }
 }
 
+async function openEvaluation(ex: Exchange) {
+  evaluationVisible.value = true
+  evaluationLoading.value = true
+  evaluationStatus.value = null
+  evaluationForm.comment = ''
+  evaluationForm.anonymous = false
+  EVALUATION_DIMENSIONS.forEach((d) => { evaluationForm.scores[d.key] = 80 })
+  try {
+    const status = await evaluationApi.status(ex.id)
+    evaluationStatus.value = status
+    if (status.myEvaluation?.comment) {
+      evaluationForm.comment = status.myEvaluation.comment
+    }
+    evaluationForm.anonymous = Boolean(status.myEvaluation?.anonymous)
+  } catch {
+    evaluationVisible.value = false
+  } finally {
+    evaluationLoading.value = false
+  }
+}
+
+async function submitEvaluation() {
+  if (!evaluationStatus.value?.canSubmit || evaluationSubmitting.value) return
+  const total = evaluationTotal.value
+  if (total < 60 && evaluationForm.comment.trim().length < 15) {
+    ElMessage.warning('总分低于 60 时，请填写不少于 15 字的具体说明')
+    return
+  }
+  evaluationSubmitting.value = true
+  try {
+    const status = await evaluationApi.submit({
+      recordId: evaluationStatus.value.recordId,
+      dimScores: { ...evaluationForm.scores },
+      comment: evaluationForm.comment.trim() || undefined,
+      anonymous: evaluationForm.anonymous
+    })
+    evaluationStatus.value = status
+    ElMessage.success(Boolean(status.bothSubmitted) ? '互评完成，交换已结束' : '评价已提交，等待对方完成互评')
+    await loadAll()
+  } catch {
+    // 提示由统一响应拦截器处理
+  } finally {
+    evaluationSubmitting.value = false
+  }
+}
+
 onMounted(() => {
   loadMeta()
   loadAll()
@@ -315,6 +390,20 @@ onMounted(() => {
               @click="router.push({ name: 'Workspace', params: { recordId: ex.id } })"
             >查看协作记录</el-button>
             <el-button
+              v-if="ex.status === 'PENDING_EVAL'"
+              size="small"
+              type="warning"
+              plain
+              @click="openEvaluation(ex)"
+            >去互评</el-button>
+            <el-button
+              v-else-if="ex.status === 'COMPLETED'"
+              size="small"
+              type="success"
+              plain
+              @click="openEvaluation(ex)"
+            >查看互评</el-button>
+            <el-button
               v-for="t in ex.allowedNextStatus ?? []"
               :key="t"
               size="small"
@@ -326,7 +415,7 @@ onMounted(() => {
             </el-button>
           </div>
           <div v-if="ex.status === 'PENDING_EVAL'" class="row__hint">
-            互评提交后将生成不可篡改的存证记录（M6 上线）
+            点击“去互评”提交四个维度的评分；双方都提交后交换自动完成
           </div>
           <div v-else-if="ex.status === 'DISPUTED'" class="row__hint row__hint--warn">
             争议中：将由社区仲裁委员会基于全过程数据集体裁决（M8 上线）
@@ -389,6 +478,92 @@ onMounted(() => {
 
       <el-empty v-if="!loading && sent.length === 0" description="还没有发出邀约" />
     </div>
+
+    <!-- ---------------- 双向互评 ---------------- -->
+    <el-dialog v-model="evaluationVisible" title="双向互评" width="680px" destroy-on-close>
+      <div v-loading="evaluationLoading" class="evaluation">
+        <template v-if="evaluationStatus">
+          <div class="evaluation__context">
+            <div>
+              <div class="evaluation__title">{{ evaluationStatus.title || evaluationStatus.recordNo }}</div>
+              <div class="evaluation__peer">
+                评价对象：{{ evaluationStatus.peerName || evaluationStatus.peerSno || '对方' }}
+                <span v-if="evaluationStatus.peerProvideSkill"> · 对方可提供 {{ evaluationStatus.peerProvideSkill }}</span>
+              </div>
+            </div>
+            <el-tag v-if="evaluationStatus.bothSubmitted" type="success">双方已完成</el-tag>
+            <el-tag v-else-if="evaluationStatus.mySubmitted" type="warning">等待对方</el-tag>
+            <el-tag v-else type="warning">待我评价</el-tag>
+          </div>
+
+          <el-alert
+            v-if="evaluationStatus.processDigest"
+            :title="'协作过程：' + evaluationStatus.processDigest"
+            type="info"
+            :closable="false"
+            show-icon
+            class="evaluation__process"
+          />
+          <el-alert
+            v-if="evaluationStatus.hint"
+            :title="evaluationStatus.hint"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="evaluation__process"
+          />
+
+          <div v-if="evaluationStatus.canSubmit" class="evaluation__form">
+            <div v-for="dimension in EVALUATION_DIMENSIONS" :key="dimension.key" class="evaluation__factor">
+              <div class="evaluation__factor-head">
+                <div>
+                  <b>{{ dimension.label }}</b>
+                  <span>{{ dimension.hint }}</span>
+                </div>
+                <strong>{{ evaluationForm.scores[dimension.key] }} 分</strong>
+              </div>
+              <el-slider v-model="evaluationForm.scores[dimension.key]" :min="0" :max="100" :step="1" />
+            </div>
+            <div class="evaluation__total">
+              加权总分预览：<strong>{{ evaluationTotal.toFixed(1) }}</strong> / 100
+            </div>
+            <el-input
+              v-model="evaluationForm.comment"
+              type="textarea"
+              :rows="4"
+              maxlength="1000"
+              show-word-limit
+              placeholder="说明协作过程和评分依据；总分低于 60 时必须填写不少于 15 字"
+            />
+            <el-switch v-model="evaluationForm.anonymous" active-text="匿名评价" />
+          </div>
+
+          <div v-else-if="evaluationStatus.myEvaluation" class="evaluation__result">
+            <div class="evaluation__result-title">我的评价</div>
+            <div class="evaluation__score">总分 {{ Number(evaluationStatus.myEvaluation.totalScore ?? 0).toFixed(1) }}</div>
+            <p>{{ evaluationStatus.myEvaluation.comment || '未填写文字评语' }}</p>
+            <div v-if="evaluationStatus.myEvaluation.verifyCode" class="evaluation__proof">
+              校验码 {{ evaluationStatus.myEvaluation.verifyCode }} · {{ evaluationStatus.myEvaluation.evidenceLevelLabel || '哈希存证' }}
+            </div>
+            <div v-if="evaluationStatus.peerScoreVisible && evaluationStatus.peerEvaluation" class="evaluation__peer-result">
+              <div class="evaluation__result-title">对方给我的评价</div>
+              <div class="evaluation__score">总分 {{ Number(evaluationStatus.peerEvaluation.totalScore ?? 0).toFixed(1) }}</div>
+              <p>{{ evaluationStatus.peerEvaluation.comment || '未填写文字评语' }}</p>
+            </div>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="evaluationVisible = false">关闭</el-button>
+        <el-button
+          v-if="evaluationStatus?.canSubmit"
+          type="primary"
+          :loading="evaluationSubmitting"
+          :disabled="evaluationSubmitting"
+          @click="submitEvaluation"
+        >提交评价</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -575,4 +750,106 @@ onMounted(() => {
   font-size: 12px;
   color: var(--zy-text-placeholder);
 }
+.evaluation {
+  min-height: 180px;
+}
+
+.evaluation__context {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--zy-border);
+}
+
+.evaluation__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--zy-text-primary);
+}
+
+.evaluation__peer {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--zy-text-secondary);
+}
+
+.evaluation__process {
+  margin-top: 12px;
+}
+
+.evaluation__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.evaluation__factor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.evaluation__factor-head span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--zy-text-placeholder);
+}
+
+.evaluation__factor-head strong {
+  flex: none;
+  color: var(--zy-primary-dark);
+}
+
+.evaluation__total {
+  padding: 10px 14px;
+  border-radius: var(--zy-radius-sm);
+  background: rgba(47, 125, 143, 0.08);
+  color: var(--zy-primary-dark);
+}
+
+.evaluation__result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: var(--zy-radius-sm);
+  background: var(--zy-bg-muted);
+}
+
+.evaluation__result-title {
+  font-weight: 700;
+  color: var(--zy-text-primary);
+}
+
+.evaluation__result p {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--zy-text-regular);
+}
+
+.evaluation__score {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--zy-primary-dark);
+}
+
+.evaluation__proof {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--zy-text-placeholder);
+}
+
+.evaluation__peer-result {
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--zy-border);
+}
+
 </style>

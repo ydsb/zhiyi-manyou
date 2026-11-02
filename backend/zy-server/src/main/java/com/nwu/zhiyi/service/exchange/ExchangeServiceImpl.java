@@ -18,6 +18,7 @@ import com.nwu.zhiyi.domain.entity.Skill;
 import com.nwu.zhiyi.domain.entity.Student;
 import com.nwu.zhiyi.domain.mapper.DemandInterestMapper;
 import com.nwu.zhiyi.domain.mapper.DemandMapper;
+import com.nwu.zhiyi.domain.mapper.EvaluationGradeMapper;
 import com.nwu.zhiyi.domain.mapper.ExchangeRecordMapper;
 import com.nwu.zhiyi.domain.mapper.SkillMapper;
 import com.nwu.zhiyi.domain.mapper.StudentMapper;
@@ -68,6 +69,7 @@ public class ExchangeServiceImpl implements ExchangeService {
     private final DemandInterestMapper interestMapper;
     private final SkillMapper skillMapper;
     private final StudentMapper studentMapper;
+    private final EvaluationGradeMapper evaluationMapper;
     private final DemandService demandService;
     private final WorkspaceService workspaceService;
     private final NotificationService notificationService;
@@ -338,6 +340,10 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (record.getStatus() != ExchangeStatus.PENDING_EVAL) {
             throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
                     "只有待互评状态才能由互评流程完成交换");
+        }
+        if (evaluationMapper.countByRecord(recordId) < 2) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "双方评价尚未全部提交，不能完成交换");
         }
         return applyTransition(record, ExchangeStatus.COMPLETED, null, operator);
     }
