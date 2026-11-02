@@ -290,19 +290,61 @@ public class ExchangeServiceImpl implements ExchangeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ExchangeVO changeStatus(String operator, Long recordId, String targetStatus, Double actualHours) {
-        ExchangeRecord record = exchangeMapper.selectById(recordId);
-        if (record == null) {
-            throw new BusinessException(ErrorCode.EXCHANGE_NOT_FOUND);
-        }
+        ExchangeRecord record = requireRecord(recordId);
         if (!record.isParticipant(operator)) {
             throw new BusinessException(ErrorCode.NOT_PARTICIPANT);
         }
-        ExchangeStatus target = ExchangeStatus.of(targetStatus);
-        if (target == null) {
-            throw BusinessException.paramInvalid("目标状态不合法：" + targetStatus);
-        }
+        ExchangeStatus target = parseTargetStatus(targetStatus);
 
-        // 状态机校验 + 副作用（时间戳）
+        /*
+         * 公开状态接口只承载“进行中 → 待互评”等参与者操作。
+         * IN_PROGRESS 必须由接受邀约统一完成兴趣、需求和交换三方联动；
+         * COMPLETED 必须由双方互评流程触发；DISPUTED 必须由治理流程创建案件后触发。
+         * 否则 changeStatus 会成为绕过业务前置条件的后门。
+         */
+        if (target == ExchangeStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "请通过接受交换邀约进入进行中状态");
+        }
+        if (target == ExchangeStatus.COMPLETED) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "双方互评完成后由系统自动完成交换");
+        }
+        if (target == ExchangeStatus.DISPUTED) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "请通过争议治理流程发起争议");
+        }
+        if (target != ExchangeStatus.PENDING_EVAL && target != ExchangeStatus.CANCELLED) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "该状态只能由对应业务流程自动推进");
+        }
+        if (target == ExchangeStatus.CANCELLED && record.getStatus() != ExchangeStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "洽谈中的邀约请通过拒绝或撤回处理");
+        }
+        if (actualHours != null && target != ExchangeStatus.PENDING_EVAL) {
+            throw BusinessException.paramInvalid("只有进入待互评时才能填写实际投入时长");
+        }
+        return applyTransition(record, target, actualHours, operator);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ExchangeVO completeAfterEvaluation(String operator, Long recordId) {
+        ExchangeRecord record = requireRecord(recordId);
+        if (!record.isParticipant(operator)) {
+            throw new BusinessException(ErrorCode.NOT_PARTICIPANT);
+        }
+        if (record.getStatus() != ExchangeStatus.PENDING_EVAL) {
+            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
+                    "只有待互评状态才能由互评流程完成交换");
+        }
+        return applyTransition(record, ExchangeStatus.COMPLETED, null, operator);
+    }
+
+    private ExchangeVO applyTransition(ExchangeRecord record, ExchangeStatus target,
+                                       Double actualHours, String operator) {
+        Long recordId = record.getId();
         ExchangeStatus previous = record.getStatus();
         record.transferTo(target);
         if (actualHours != null) {
@@ -310,21 +352,18 @@ public class ExchangeServiceImpl implements ExchangeService {
         }
         exchangeMapper.updateById(record);
 
-        // 写协作事件（FR-M5-04 时间轴）
         workspaceService.recordEvent(recordId, operator,
                 com.nwu.zhiyi.domain.entity.CollabEvent.TYPE_STATUS_CHANGE,
                 String.format("交换状态变更：%s → %s", label(previous), target.getLabel()),
                 actualHours == null ? null : ("实际投入 " + actualHours + " 小时"),
                 "EXCHANGE", recordId);
 
-        // 进入待互评时提醒双方（FR-M5-05 互评提醒）
         if (target == ExchangeStatus.PENDING_EVAL) {
             notificationService.sendToExchangeParties(recordId, null, NotificationType.EVAL_REMIND,
                     "交换已进入待互评",
                     "请到「我的交换」完成双向互评，评价提交后将生成不可篡改的存证记录");
         }
 
-        // 取消时释放卡片，让它重新可招募
         if (target == ExchangeStatus.CANCELLED && record.getSourceDemandId() != null) {
             Demand demand = demandMapper.selectById(record.getSourceDemandId());
             if (demand != null && demand.getStatus() == DemandStatus.MATCHED) {
@@ -332,10 +371,33 @@ public class ExchangeServiceImpl implements ExchangeService {
             }
         }
 
-        log.info("[交换流转] record={} {} → {} by={}",
-                record.getRecordNo(), label(previous), target.getLabel(), operator);
+        // 交换完成后来源需求正式下架，避免已完成卡片继续出现在集市。
+        if (target == ExchangeStatus.COMPLETED && record.getSourceDemandId() != null) {
+            Demand demand = demandMapper.selectById(record.getSourceDemandId());
+            if (demand != null && demand.getStatus() != DemandStatus.CLOSED) {
+                demandMapper.updateById(new Demand().setId(demand.getId()).setStatus(DemandStatus.CLOSED));
+            }
+        }
 
+        log.info("[交换流转] record={} {} → {} by={}", record.getRecordNo(),
+                label(previous), target.getLabel(), operator);
         return detail(recordId, operator);
+    }
+
+    private ExchangeRecord requireRecord(Long recordId) {
+        ExchangeRecord record = exchangeMapper.selectById(recordId);
+        if (record == null) {
+            throw new BusinessException(ErrorCode.EXCHANGE_NOT_FOUND);
+        }
+        return record;
+    }
+
+    private ExchangeStatus parseTargetStatus(String targetStatus) {
+        ExchangeStatus target = ExchangeStatus.of(targetStatus);
+        if (target == null) {
+            throw BusinessException.paramInvalid("目标状态不合法：" + targetStatus);
+        }
+        return target;
     }
 
     /** 状态标签（previous 可能为 null，做兜底） */
@@ -456,12 +518,26 @@ public class ExchangeServiceImpl implements ExchangeService {
         boolean participant = isTaker || isGiver;
         ExchangeStatus status = r.getStatus() == null ? ExchangeStatus.PUBLISHED : r.getStatus();
 
-        vo.setCanAccept(participant && status == ExchangeStatus.NEGOTIATING);
-        vo.setCanReject(participant && status == ExchangeStatus.NEGOTIATING);
-        vo.setCanCancel(participant && !status.isFinal());
-        vo.setCanStart(participant && status == ExchangeStatus.NEGOTIATING);
+        // 接受/拒绝走邀约接口，开始协作由 accept 内部完成，不允许通过通用状态接口绕过。
+        vo.setCanAccept(isTaker && status == ExchangeStatus.NEGOTIATING);
+        vo.setCanReject(isTaker && status == ExchangeStatus.NEGOTIATING);
+        vo.setCanStart(false);
+        vo.setCanCancel(participant && status == ExchangeStatus.IN_PROGRESS);
         vo.setCanSubmitEval(participant && status == ExchangeStatus.PENDING_EVAL);
-        vo.setCanDispute(participant && !status.isFinal());
+        vo.setCanDispute(participant
+                && (status == ExchangeStatus.IN_PROGRESS || status == ExchangeStatus.PENDING_EVAL));
+
+        /*
+         * 只暴露 Controller 真正允许的公开流转。
+         * IN_PROGRESS 必须由接受邀约完成，COMPLETED 必须由互评完成，
+         * DISPUTED 必须通过治理流程创建案件，因此都不能由通用状态按钮触发。
+         */
+        List<String> manualNext = new ArrayList<>();
+        if (status == ExchangeStatus.IN_PROGRESS) {
+            manualNext.add(ExchangeStatus.PENDING_EVAL.name());
+            manualNext.add(ExchangeStatus.CANCELLED.name());
+        }
+        vo.setAllowedNextStatus(manualNext);
     }
 
     /* ==================== 私有：校验与工具 ==================== */

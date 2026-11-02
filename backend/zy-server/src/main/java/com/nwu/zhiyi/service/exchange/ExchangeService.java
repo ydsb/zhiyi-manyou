@@ -61,6 +61,17 @@ public interface ExchangeService {
     ExchangeVO changeStatus(String operator, Long recordId, String targetStatus, Double actualHours);
 
     /**
+     * 双方互评完成后由评价流程推进交换完成，并关闭来源需求卡片。
+     *
+     * <p>该方法只供后端业务服务调用，不直接映射为 Controller，避免参与者绕过互评直接完成交换。
+     *
+     * @param operator 操作人（交换参与方）
+     * @param recordId 交换记录 ID
+     * @return 更新后的交换
+     */
+    ExchangeVO completeAfterEvaluation(String operator, Long recordId);
+
+    /**
      * 查询与我相关的交换（我作为供给方或需求方）。
      *
      * @param sno    学号

@@ -80,8 +80,10 @@ public class ExchangeController {
     /**
      * 推进交换状态（FR-M4-04 状态机）。
      *
-     * <p>目标状态必须是当前状态的合法后继，由 {@code ExchangeStatus} 校验；
-     * 响应中的 {@code allowedNextStatus} 已给出可用取值，前端无需硬编码。
+     * <p>该接口只开放参与者可主动执行的公开流转，当前主要用于“进行中 → 待互评”
+     * 和取消进行中的交换。接受邀约必须走 accept 接口，COMPLETED 必须由双方互评触发，
+     * DISPUTED 必须通过治理流程创建案件，不能由通用状态接口绕过。
+     * 响应中的 {@code allowedNextStatus} 已给出前端可展示的公开取值。
      *
      * <pre>POST /api/exchanges/{recordId}/status?target=PENDING_EVAL&amp;actualHours=7.5</pre>
      */

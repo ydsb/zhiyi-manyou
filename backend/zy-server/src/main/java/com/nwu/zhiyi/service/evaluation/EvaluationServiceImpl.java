@@ -176,8 +176,7 @@ public class EvaluationServiceImpl implements EvaluationService {
      */
     private void completeRecord(ExchangeRecord record, String operator) {
         try {
-            exchangeService.changeStatus(operator, record.getId(),
-                    ExchangeStatus.COMPLETED.name(), null);
+            exchangeService.completeAfterEvaluation(operator, record.getId());
             log.info("[互评完成] record={} 双方评价齐备，交换已流转为「已完成」", record.getRecordNo());
             notificationService.sendToExchangeParties(record.getId(), null,
                     NotificationType.EVAL_REMIND, "交换已完成",
