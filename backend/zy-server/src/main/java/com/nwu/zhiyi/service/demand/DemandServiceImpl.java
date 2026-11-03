@@ -452,19 +452,6 @@ public class DemandServiceImpl implements DemandService {
     }
 
     /**
-     * 标记卡片为已匹配（交换进入进行中时调用）。
-     *
-     * @param demandId 卡片 ID
-     */
-    @Override
-    public void markMatched(Long demandId) {
-        if (demandId == null) {
-            return;
-        }
-        demandMapper.updateById(new Demand().setId(demandId).setStatus(DemandStatus.MATCHED));
-    }
-
-    /**
      * 递增卡片的邀约数。
      *
      * @param demandId 卡片 ID

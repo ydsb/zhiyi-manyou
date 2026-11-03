@@ -111,13 +111,6 @@ public interface DemandService {
     void checkPendingInterestLimit(String applicantSno);
 
     /**
-     * 标记卡片为已匹配（交换进入进行中时调用）。
-     *
-     * @param demandId 卡片 ID
-     */
-    void markMatched(Long demandId);
-
-    /**
      * 递增卡片的邀约数。
      *
      * @param demandId 卡片 ID

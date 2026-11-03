@@ -27,6 +27,7 @@ import com.nwu.zhiyi.service.demand.DemandService;
 import com.nwu.zhiyi.service.notify.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -124,7 +125,12 @@ public class ExchangeServiceImpl implements ExchangeService {
                 .setRecordId(record.getId())
                 .setStatus(DemandInterestStatus.PENDING)
                 .setMessage(trimToNull(request.getMessage()));
-        interestMapper.insert(interest);
+        try {
+            interestMapper.insert(interest);
+        } catch (DuplicateKeyException e) {
+            // 并发请求可能同时通过预检查，唯一索引是最终防线。
+            throw new BusinessException(ErrorCode.INTEREST_ALREADY_EXISTS);
+        }
 
         // 7. 卡片邀约数 +1
         demandService.incrementMatchCount(demand.getId());
@@ -166,7 +172,6 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (demand == null) {
             throw new BusinessException(ErrorCode.DEMAND_NOT_FOUND);
         }
-        // 只有卡片发布人可以接受/拒绝
         if (!demand.isOwnedBy(operator)) {
             throw new BusinessException(ErrorCode.DEMAND_NOT_OWNER);
         }
@@ -176,15 +181,20 @@ public class ExchangeServiceImpl implements ExchangeService {
         result.put("accepted", accept);
 
         if (!accept) {
-            interestMapper.updateById(new DemandInterest().setId(interestId)
-                    .setStatus(DemandInterestStatus.REJECTED));
+            if (interestMapper.rejectIfPending(interestId) != 1) {
+                throw stateConflict("邀约已被其他请求处理");
+            }
             ExchangeRecord record = interest.getRecordId() == null ? null
                     : exchangeMapper.selectById(interest.getRecordId());
-            if (record != null && record.getStatus() == ExchangeStatus.NEGOTIATING) {
-                record.transferTo(ExchangeStatus.CANCELLED);
-                exchangeMapper.updateById(record);
+            if (record == null) {
+                throw new BusinessException(ErrorCode.EXCHANGE_NOT_FOUND,
+                        "邀约关联的交换记录不存在");
             }
-            // 通知申请人（FR-M5-05）
+            if (record.getStatus() != ExchangeStatus.NEGOTIATING) {
+                throw stateConflict("交换记录已被其他请求处理");
+            }
+            transitionRecordCas(record, ExchangeStatus.CANCELLED, null, operator);
+
             notificationService.sendOnce(interest.getApplicantSno(), NotificationType.INVITE_RESULT,
                     "交换邀约被拒绝",
                     StringUtils.hasText(reason) ? ("对方拒绝了你的邀约：" + reason) : "对方拒绝了你的邀约",
@@ -194,44 +204,39 @@ public class ExchangeServiceImpl implements ExchangeService {
             return result;
         }
 
-        // 接受：交换进入进行中，卡片标记为已匹配。
-        //
-        // 注意：这里刻意【不】再校验并发配额。
-        // 「发起邀约」时该交换已进入 NEGOTIATING 并占用配额，接受只是把同一条交换
-        // 从洽谈中推进到进行中，不产生新的占用。若在此重复校验，
-        // checkExchangeQuota 会把这条交换自己也算进 ongoing，
-        // 导致"配额已满时永远无法接受邀约"（曾出现的缺陷）。
         ExchangeRecord record = interest.getRecordId() == null ? null
                 : exchangeMapper.selectById(interest.getRecordId());
         if (record == null) {
             throw new BusinessException(ErrorCode.EXCHANGE_NOT_FOUND, "邀约关联的交换记录不存在");
         }
         if (record.getStatus() != ExchangeStatus.NEGOTIATING) {
-            throw new BusinessException(ErrorCode.EXCHANGE_STATUS_ILLEGAL,
-                    String.format("该交换当前状态为「%s」，无法接受邀约",
-                            record.getStatus() == null ? "未知" : record.getStatus().getLabel()));
+            throw stateConflict(String.format("该交换当前状态为「%s」，无法接受邀约",
+                    record.getStatus() == null ? "未知" : record.getStatus().getLabel()));
         }
 
-        record.transferTo(ExchangeStatus.IN_PROGRESS);
-        exchangeMapper.updateById(record);
+        // 需求 OPEN → MATCHED 是接受操作的全局唯一闸门：
+        // 两个用户并发接受同一张卡片时，只有一个请求能拿到影响行数 1。
+        if (demandMapper.markMatchedIfOpen(demand.getId()) != 1) {
+            throw stateConflict("该需求已被其他人接受或已关闭");
+        }
+        if (interestMapper.acceptIfPending(interestId) != 1) {
+            throw stateConflict("该邀约已被其他请求处理");
+        }
 
-        interestMapper.updateById(new DemandInterest().setId(interestId)
-                .setStatus(DemandInterestStatus.ACCEPTED));
-        demandService.markMatched(demand.getId());
-
-        // 同一卡片上的其他待响应邀约自动拒绝：一张卡片对应一次交换，避免一对多重复占用
+        // 先取出其他待响应邀约，再推进当前交换。
         List<DemandInterest> others = interestMapper.selectList(new LambdaQueryWrapper<DemandInterest>()
                 .eq(DemandInterest::getDemandId, demand.getId())
                 .eq(DemandInterest::getStatus, DemandInterestStatus.PENDING)
                 .ne(DemandInterest::getId, interestId));
+
+        transitionRecordCas(record, ExchangeStatus.IN_PROGRESS, null, operator);
+
+        interestMapper.rejectOtherPending(demand.getId(), interestId);
         for (DemandInterest other : others) {
-            interestMapper.updateById(new DemandInterest().setId(other.getId())
-                    .setStatus(DemandInterestStatus.REJECTED));
             if (other.getRecordId() != null) {
                 ExchangeRecord otherRecord = exchangeMapper.selectById(other.getRecordId());
                 if (otherRecord != null && otherRecord.getStatus() == ExchangeStatus.NEGOTIATING) {
-                    otherRecord.transferTo(ExchangeStatus.CANCELLED);
-                    exchangeMapper.updateById(otherRecord);
+                    cancelNegotiatingRecord(otherRecord);
                 }
             }
         }
@@ -245,7 +250,6 @@ public class ExchangeServiceImpl implements ExchangeService {
         result.put("workspaceReady", true);
         result.put("message", "已接受邀约，协作空间已生成");
 
-        // 写协作事件起点（FR-M5-04 时间轴的第一条）+ 通知申请人（FR-M5-05）
         workspaceService.recordEvent(record.getId(), operator,
                 com.nwu.zhiyi.domain.entity.CollabEvent.TYPE_EXCHANGE_START,
                 "交换正式开始",
@@ -275,13 +279,16 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (!interest.isPending()) {
             throw new BusinessException(ErrorCode.INTEREST_NOT_PENDING);
         }
-        interestMapper.updateById(new DemandInterest().setId(interestId)
-                .setStatus(DemandInterestStatus.WITHDRAWN));
+        if (interestMapper.withdrawIfPending(interestId, applicantSno) != 1) {
+            throw stateConflict("该邀约已被其他请求处理");
+        }
         if (interest.getRecordId() != null) {
             ExchangeRecord record = exchangeMapper.selectById(interest.getRecordId());
-            if (record != null && record.getStatus() == ExchangeStatus.NEGOTIATING) {
-                record.transferTo(ExchangeStatus.CANCELLED);
-                exchangeMapper.updateById(record);
+            if (record != null) {
+                if (record.getStatus() != ExchangeStatus.NEGOTIATING) {
+                    throw stateConflict("交换记录已被其他请求处理");
+                }
+                transitionRecordCas(record, ExchangeStatus.CANCELLED, null, applicantSno);
             }
         }
         log.info("[邀约撤回] interest={} by={}", interestId, applicantSno);
@@ -352,11 +359,7 @@ public class ExchangeServiceImpl implements ExchangeService {
                                        Double actualHours, String operator) {
         Long recordId = record.getId();
         ExchangeStatus previous = record.getStatus();
-        record.transferTo(target);
-        if (actualHours != null) {
-            record.setActualHours(BigDecimal.valueOf(actualHours));
-        }
-        exchangeMapper.updateById(record);
+        transitionRecordCas(record, target, actualHours, operator);
 
         workspaceService.recordEvent(recordId, operator,
                 com.nwu.zhiyi.domain.entity.CollabEvent.TYPE_STATUS_CHANGE,
@@ -370,24 +373,56 @@ public class ExchangeServiceImpl implements ExchangeService {
                     "请到「我的交换」完成双向互评，评价提交后将生成不可篡改的存证记录");
         }
 
-        if (target == ExchangeStatus.CANCELLED && record.getSourceDemandId() != null) {
-            Demand demand = demandMapper.selectById(record.getSourceDemandId());
-            if (demand != null && demand.getStatus() == DemandStatus.MATCHED) {
-                demandMapper.updateById(new Demand().setId(demand.getId()).setStatus(DemandStatus.OPEN));
-            }
-        }
-
-        // 交换完成后来源需求正式下架，避免已完成卡片继续出现在集市。
-        if (target == ExchangeStatus.COMPLETED && record.getSourceDemandId() != null) {
-            Demand demand = demandMapper.selectById(record.getSourceDemandId());
-            if (demand != null && demand.getStatus() != DemandStatus.CLOSED) {
-                demandMapper.updateById(new Demand().setId(demand.getId()).setStatus(DemandStatus.CLOSED));
-            }
-        }
-
         log.info("[交换流转] record={} {} → {} by={}", record.getRecordNo(),
                 label(previous), target.getLabel(), operator);
         return detail(recordId, operator);
+    }
+
+    /**
+     * 内存状态机校验 + 数据库状态 CAS。affected=0 说明读取后状态已被其他事务修改。
+     */
+    private void transitionRecordCas(ExchangeRecord record, ExchangeStatus target,
+                                     Double actualHours, String operator) {
+        Long recordId = record.getId();
+        ExchangeStatus previous = record.getStatus();
+        record.transferTo(target);
+        if (actualHours != null) {
+            record.setActualHours(BigDecimal.valueOf(actualHours));
+        }
+        int affected = exchangeMapper.updateStatusCas(
+                recordId, previous.name(), target.name(),
+                record.getStartedAt(), record.getPendingEvalAt(), record.getFinishedAt(),
+                record.getActualHours());
+        if (affected != 1) {
+            throw stateConflict("交换状态已被其他请求修改，请刷新后重试");
+        }
+
+        // 只有已进入协作的交换被取消才需要重新开放需求；洽谈中邀约被拒绝/撤回不得影响卡片。
+        if (target == ExchangeStatus.CANCELLED && previous == ExchangeStatus.IN_PROGRESS
+                && record.getSourceDemandId() != null) {
+            demandMapper.reopenAfterCancellation(record.getSourceDemandId());
+        }
+        if (target == ExchangeStatus.COMPLETED && record.getSourceDemandId() != null) {
+            demandMapper.closeAfterCompletion(record.getSourceDemandId());
+        }
+    }
+
+    /**
+     * 接受一条邀约时取消其他竞争交换。其他请求可能已经先一步处理，CAS 失败只记录日志。
+     */
+    private void cancelNegotiatingRecord(ExchangeRecord record) {
+        record.transferTo(ExchangeStatus.CANCELLED);
+        int affected = exchangeMapper.updateStatusCas(
+                record.getId(), ExchangeStatus.NEGOTIATING.name(), ExchangeStatus.CANCELLED.name(),
+                record.getStartedAt(), record.getPendingEvalAt(), record.getFinishedAt(),
+                record.getActualHours());
+        if (affected == 0) {
+            log.debug("[邀约接受] 竞争交换已被其他请求处理：record={}", record.getId());
+        }
+    }
+
+    private static BusinessException stateConflict(String message) {
+        return new BusinessException(ErrorCode.EXCHANGE_STATE_CONFLICT, message);
     }
 
     private ExchangeRecord requireRecord(Long recordId) {

@@ -17,6 +17,18 @@ import java.util.Map;
 @Mapper
 public interface DemandMapper extends BaseMapper<Demand> {
 
+    /** OPEN → MATCHED；返回 0 表示已有其他请求抢先匹配或卡片已关闭。 */
+    @Update("UPDATE zy_demand SET status = 'MATCHED' WHERE id = #{demandId} AND status = 'OPEN' AND deleted = 0")
+    int markMatchedIfOpen(@Param("demandId") Long demandId);
+
+    /** 交换完成后关闭来源需求。 */
+    @Update("UPDATE zy_demand SET status = 'CLOSED' WHERE id = #{demandId} AND status IN ('OPEN', 'MATCHED') AND deleted = 0")
+    int closeAfterCompletion(@Param("demandId") Long demandId);
+
+    /** 交换取消后重新开放来源需求；若已被其他流程关闭则不覆盖。 */
+    @Update("UPDATE zy_demand SET status = 'OPEN' WHERE id = #{demandId} AND status = 'MATCHED' AND deleted = 0")
+    int reopenAfterCancellation(@Param("demandId") Long demandId);
+
     /**
      * 原子递增浏览次数，避免读-改-写造成并发覆盖。
      *

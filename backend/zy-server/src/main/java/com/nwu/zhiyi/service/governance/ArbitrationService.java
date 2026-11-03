@@ -212,12 +212,8 @@ public class ArbitrationService {
             // 交换置为争议状态（已裁决，标记为争议以区别于正常完成）
             if (record != null && record.getStatus() != ExchangeStatus.DISPUTED
                     && record.getStatus() != ExchangeStatus.CANCELLED) {
-                try {
-                    record.transferTo(ExchangeStatus.DISPUTED);
-                    exchangeMapper.updateById(record);
+                if (markDisputedCas(record)) {
                     actions.add("交换状态标记为「争议中」");
-                } catch (Exception e) {
-                    log.warn("[仲裁] 交换状态流转失败 record={} - {}", record.getRecordNo(), e.getMessage());
                 }
             }
 
@@ -343,12 +339,8 @@ public class ArbitrationService {
             actions.add(String.format("申诉人信用 %d → %d", c2.before(), c2.after()));
             if (record != null && record.getStatus() != ExchangeStatus.DISPUTED
                     && record.getStatus() != ExchangeStatus.CANCELLED) {
-                try {
-                    record.transferTo(ExchangeStatus.DISPUTED);
-                    exchangeMapper.updateById(record);
+                if (markDisputedCas(record)) {
                     actions.add("交换状态标记为「争议中」");
-                } catch (Exception e) {
-                    log.warn("[仲裁] 交换状态流转失败 - {}", e.getMessage());
                 }
             }
             dispute.setStatus(DisputeStatus.RESOLVED.name());
@@ -423,6 +415,27 @@ public class ArbitrationService {
     }
 
     /** 统计某用户在已结争议中被认定承担责任的次数 */
+    /** 争议状态 CAS；并发下若交换已进入终态，则不覆盖。 */
+    private boolean markDisputedCas(ExchangeRecord record) {
+        ExchangeStatus previous = record.getStatus();
+        try {
+            record.transferTo(ExchangeStatus.DISPUTED);
+        } catch (BusinessException e) {
+            log.warn("[仲裁] 交换状态流转失败 record={} - {}", record.getRecordNo(), e.getMessage());
+            return false;
+        }
+        int affected = exchangeMapper.updateStatusCas(
+                record.getId(), previous.name(), ExchangeStatus.DISPUTED.name(),
+                record.getStartedAt(), record.getPendingEvalAt(), record.getFinishedAt(),
+                record.getActualHours());
+        if (affected == 0) {
+            log.warn("[仲裁] 交换状态已被其他请求改变，跳过覆盖 record={} expected={}",
+                    record.getRecordNo(), previous);
+            return false;
+        }
+        return true;
+    }
+
     private long countLostDisputes(String sno) {
         List<Dispute> disputes = disputeMapper.selectList(new LambdaQueryWrapper<Dispute>()
                 .eq(Dispute::getRespondent, sno)

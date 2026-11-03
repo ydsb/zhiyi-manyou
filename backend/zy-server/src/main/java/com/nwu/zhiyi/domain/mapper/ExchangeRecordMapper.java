@@ -5,7 +5,10 @@ import com.nwu.zhiyi.domain.entity.ExchangeRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -16,6 +19,24 @@ import java.util.Map;
  */
 @Mapper
 public interface ExchangeRecordMapper extends BaseMapper<ExchangeRecord> {
+
+    /**
+     * 状态 CAS：仅当数据库当前状态仍等于 expected 时才更新。
+     *
+     * @return 影响行数；0 表示状态已被其他事务改变
+     */
+    @Update("UPDATE zy_exchange_record SET status = #{target}, "
+            + "started_at = #{startedAt}, pending_eval_at = #{pendingEvalAt}, "
+            + "finished_at = #{finishedAt}, actual_hours = COALESCE(#{actualHours}, actual_hours), "
+            + "updated_at = NOW() "
+            + "WHERE id = #{id} AND status = #{expected} AND deleted = 0")
+    int updateStatusCas(@Param("id") Long id,
+                        @Param("expected") String expected,
+                        @Param("target") String target,
+                        @Param("startedAt") LocalDateTime startedAt,
+                        @Param("pendingEvalAt") LocalDateTime pendingEvalAt,
+                        @Param("finishedAt") LocalDateTime finishedAt,
+                        @Param("actualHours") BigDecimal actualHours);
 
     /**
      * 统计某学号在"占用配额"状态下的进行中交换数量。
